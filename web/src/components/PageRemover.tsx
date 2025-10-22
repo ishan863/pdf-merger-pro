@@ -109,17 +109,17 @@ export const PageRemover: React.FC<PageRemoverProps> = ({
     onPagesSelected([]);
   };
 
-  const selectRange = (startPage: number, endPage: number) => {
-    // Available for future use - range selection feature
-    const newSelected = new Set(selectedPages);
-    const min = Math.min(startPage, endPage);
-    const max = Math.max(startPage, endPage);
-    for (let i = min; i <= max; i++) {
-      newSelected.add(i);
-    }
-    setSelectedPages(newSelected);
-    onPagesSelected(Array.from(newSelected).sort((a, b) => a - b));
-  };
+  // Range selection feature - available for future use
+  // const selectRange = (startPage: number, endPage: number) => {
+  //   const newSelected = new Set(selectedPages);
+  //   const min = Math.min(startPage, endPage);
+  //   const max = Math.max(startPage, endPage);
+  //   for (let i = min; i <= max; i++) {
+  //     newSelected.add(i);
+  //   }
+  //   setSelectedPages(newSelected);
+  //   onPagesSelected(Array.from(newSelected).sort((a, b) => a - b));
+  // };
 
   const removeSelectedPages = () => {
     const removedPages = Array.from(selectedPages).sort((a, b) => a - b);

@@ -16,14 +16,6 @@ import {
   FiClock,
   FiFileText,
   FiEdit3,
-  FiZoomIn,
-  FiChevronLeft,
-  FiChevronRight,
-  FiX,
-  FiGitMerge,
-  FiFilter,
-  FiShare2,
-  FiEye,
 } from 'react-icons/fi';
 import { useFileStore } from '@/context/fileContext';
 import EnhancedUploadZone from '@/components/EnhancedUploadZone';

@@ -296,7 +296,7 @@ export async function csvToSimplePDF(
  * Client-side using XLSX library
  */
 export async function excelToPDF(
-  blob: Blob,
+  _blob: Blob,
   _fileName: string,
   options?: ConversionOptions
 ): Promise<Blob> {
@@ -304,7 +304,7 @@ export async function excelToPDF(
 
   try {
     // Dynamic import of XLSX (manual parsing as fallback)
-    const arrayBuffer = await blob.arrayBuffer();
+    // const arrayBuffer = await blob.arrayBuffer(); // Unused - server-side needed
     
     // Simple fallback: create a placeholder PDF
     // In production, use server-side processing
@@ -342,8 +342,8 @@ export async function excelToPDF(
 // ============================================================================
 
 export async function wordToPDF(
-  blob: Blob,
-  fileName: string,
+  _blob: Blob,
+  _fileName: string,
   options?: ConversionOptions
 ): Promise<Blob> {
   try {
@@ -373,7 +373,7 @@ export async function wordToPDF(
     });
 
     const pdfBytes = await pdfDoc.save();
-    return new Blob([pdfBytes], { type: 'application/pdf' });
+    return new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
   } catch (error) {
     throw new Error(`Word conversion failed: ${error}`);
   }
@@ -384,8 +384,8 @@ export async function wordToPDF(
 // ============================================================================
 
 export async function powerPointToPDF(
-  blob: Blob,
-  fileName: string,
+  _blob: Blob,
+  _fileName: string,
   options?: ConversionOptions
 ): Promise<Blob> {
   try {
@@ -408,7 +408,7 @@ export async function powerPointToPDF(
     });
 
     const pdfBytes = await pdfDoc.save();
-    return new Blob([pdfBytes], { type: 'application/pdf' });
+    return new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
   } catch (error) {
     throw new Error(`PowerPoint conversion failed: ${error}`);
   }
