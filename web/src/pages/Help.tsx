@@ -236,9 +236,13 @@ const Help: React.FC = () => {
             <h2 className={`text-2xl font-bold mb-3 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               Still Need Help?
             </h2>
-            <p className={`mb-6 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+            <p className={`mb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
               Contact our support team and we'll help you get what you need
             </p>
+            <div className={`mb-6 space-y-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <p className="font-semibold">Creator: Raja Patel</p>
+              <p className="text-sm">For inquiries, please reach out via email</p>
+            </div>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}

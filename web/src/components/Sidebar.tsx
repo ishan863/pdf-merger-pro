@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FiMenu, FiX, FiHome, FiGitMerge, FiScissors, FiFilter, FiCloud, FiClock, FiSettings, FiHelpCircle } from 'react-icons/fi';
+import { FiMenu, FiX, FiHome, FiGitMerge, FiScissors, FiFilter, FiClock, FiSettings, FiHelpCircle } from 'react-icons/fi';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 interface SidebarProps {
@@ -17,7 +17,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isDarkMode }) => {
     { icon: FiGitMerge, label: 'Merge', path: '/merge' },
     { icon: FiScissors, label: 'Split', path: '/split' },
     { icon: FiFilter, label: 'Convert', path: '/convert' },
-    { icon: FiCloud, label: 'Cloud', path: '/cloud' },
     { icon: FiClock, label: 'History', path: '/history' },
     { icon: FiSettings, label: 'Settings', path: '/settings' },
     { icon: FiHelpCircle, label: 'Help', path: '/help' },
@@ -91,14 +90,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isDarkMode }) => {
         {/* Footer */}
         <div className={`border-t p-4 ${isDarkMode ? 'border-white/10' : 'border-white/20'}`}>
           {isOpen && (
-            <motion.p
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className={`text-xs text-center ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}
+              className="space-y-2"
             >
-              v2.0 Pro
-            </motion.p>
+              <p className={`text-xs text-center font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Created by Raja Patel
+              </p>
+              <p className={`text-xs text-center ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                v2.0 Pro
+              </p>
+            </motion.div>
           )}
         </div>
       </motion.aside>
