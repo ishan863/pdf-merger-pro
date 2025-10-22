@@ -1,0 +1,21 @@
+{
+  "projects": {
+    "default": "pdf-merger-app-79417"
+  },
+  "firestore": {
+    "rules": "infrastructure/firestore.rules"
+  },
+  "storage": {
+    "rules": "infrastructure/storage.rules"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": ["node_modules", ".git", "firebase-debug.log", "firebase-debug.*.log"]
+    }
+  ],
+  "targets": {},
+  "etags": {},
+  "codegenUtilsVersion": "1.0.0"
+}

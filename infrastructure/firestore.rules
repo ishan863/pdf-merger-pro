@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // User collection
+    match /users/{uid} {
+      allow read, write: if request.auth.uid == uid;
+    }
+
+    // Files collection - owned by user
+    match /files/{fileId} {
+      allow read: if request.auth.uid == resource.data.owner;
+      allow write: if request.auth.uid == resource.data.owner;
+      allow create: if request.auth.uid == request.resource.data.owner
+                   && request.resource.data.size <= 104857600; // 100MB
+    }
+
+    // Operations collection
+    match /operations/{opId} {
+      allow read: if request.auth.uid == resource.data.owner;
+      allow write: if request.auth.uid == resource.data.owner;
+    }
+
+    // Sessions collection (user work sessions with auto-save)
+    match /users/{uid}/sessions/{sessionId} {
+      allow read, write: if request.auth.uid == uid;
+    }
+
+    // Shared sessions (collaborative or public links)
+    match /shared/sessions/{shareToken} {
+      allow read: if resource.data.expiresAt > request.time && (
+        resource.data.public == true ||
+        request.auth.uid == resource.data.owner ||
+        request.auth.uid in resource.data.collaborators
+      );
+      allow write: if request.auth.uid == resource.data.owner;
+    }
+
+    // Annotations and patches (for collaborative editing)
+    match /users/{uid}/sessions/{sessionId}/patches/{patchId} {
+      allow read, write: if request.auth.uid == uid;
+    }
+
+    // Conversion queue (for server-side conversions - consent required)
+    match /conversions/{conversionId} {
+      allow create: if request.auth.uid == request.resource.data.userId
+                   && request.resource.data.consentGiven == true
+                   && request.resource.data.inputMime in ['image/jpeg', 'image/png', 'image/webp', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+                   && request.resource.data.inputSize <= 52428800; // 50MB for conversion
+      allow read: if request.auth.uid == resource.data.userId;
+    }
+
+    // Prevent accidental overwrites
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

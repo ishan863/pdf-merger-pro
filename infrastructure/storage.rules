@@ -1,0 +1,39 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // User files - allow read/write only by owner
+    match /users/{uid}/files/{allPaths=**} {
+      allow read, write: if request.auth.uid == uid;
+      allow write: if request.auth.uid == uid
+                   && request.resource.size <= 104857600; // 100MB limit
+    }
+
+    // Temporary upload staging (for conversions)
+    match /uploads/temp/{uid}/{fileName} {
+      allow write: if request.auth.uid == uid
+                   && request.resource.size <= 52428800; // 50MB for conversion
+      allow read: if request.auth.uid == uid;
+      allow delete: if request.auth.uid == uid;
+    }
+
+    // Converted PDFs (output from server-side conversion)
+    match /conversions/{uid}/{conversionId}/{fileName} {
+      allow read, write: if request.auth.uid == uid;
+    }
+
+    // Session backups (encrypted cloud saves)
+    match /sessions/{uid}/{sessionId}/{fileName} {
+      allow read, write: if request.auth.uid == uid;
+    }
+
+    // Shared public files (with token-based access)
+    match /shared/{shareToken}/{fileName} {
+      allow read: if firestore.get(/databases/(default)/documents/shared/sessions/$(shareToken)).data.expiresAt > request.time;
+    }
+
+    // Deny all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
