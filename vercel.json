@@ -1,6 +1,12 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "env": {
     "VITE_FIREBASE_API_KEY": "AIzaSyBKqfsE-gphZaxG_o_AxN-uM7QNyZTnMO8",
     "VITE_FIREBASE_AUTH_DOMAIN": "pdf-merger-app-79417.firebaseapp.com",
