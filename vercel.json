@@ -1,5 +1,14 @@
 {
-  "root": "web",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist"
+  "buildCommand": "npm --prefix web run build",
+  "outputDirectory": "web/dist",
+  "env": {
+    "VITE_FIREBASE_API_KEY": "AIzaSyBKqfsE-gphZaxG_o_AxN-uM7QNyZTnMO8",
+    "VITE_FIREBASE_AUTH_DOMAIN": "pdf-merger-app-79417.firebaseapp.com",
+    "VITE_FIREBASE_PROJECT_ID": "pdf-merger-app-79417",
+    "VITE_FIREBASE_STORAGE_BUCKET": "pdf-merger-app-79417.firebasestorage.app",
+    "VITE_FIREBASE_MESSAGING_SENDER_ID": "692219914539",
+    "VITE_FIREBASE_APP_ID": "1:692219914539:web:e5e0b06c74fc78dc0b3d6e",
+    "VITE_MAX_FILE_SIZE_MB": "100",
+    "VITE_CLIENT_SIDE_THRESHOLD_MB": "50"
+  }
 }
