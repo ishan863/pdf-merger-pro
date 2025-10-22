@@ -15,6 +15,8 @@ build/
 .env
 .env.local
 .env.*.local
+# Exception: Allow production env for deployment
+!.env.production
 
 # IDE
 .vscode/
