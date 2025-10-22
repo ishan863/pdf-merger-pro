@@ -1,7 +1,6 @@
 {
-  "installCommand": "ls -la && cd web && npm install",
-  "buildCommand": "cd web && npm run build",
-  "outputDirectory": "web/dist",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "env": {
     "VITE_FIREBASE_API_KEY": "AIzaSyBKqfsE-gphZaxG_o_AxN-uM7QNyZTnMO8",
     "VITE_FIREBASE_AUTH_DOMAIN": "pdf-merger-app-79417.firebaseapp.com",
