@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FiMenu, FiX, FiHome, FiGitMerge, FiScissors, FiFilter, FiClock, FiSettings, FiHelpCircle } from 'react-icons/fi';
+import { FiMenu, FiX, FiHome, FiGitMerge, FiScissors, FiFilter, FiSettings, FiHelpCircle } from 'react-icons/fi';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 interface SidebarProps {
@@ -17,7 +17,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isDarkMode }) => {
     { icon: FiGitMerge, label: 'Merge', path: '/merge' },
     { icon: FiScissors, label: 'Split', path: '/split' },
     { icon: FiFilter, label: 'Convert', path: '/convert' },
-    { icon: FiClock, label: 'History', path: '/history' },
     { icon: FiSettings, label: 'Settings', path: '/settings' },
     { icon: FiHelpCircle, label: 'Help', path: '/help' },
   ];
