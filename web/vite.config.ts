@@ -31,6 +31,7 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     chunkSizeWarningLimit: 1000,
+    target: ['es2015', 'edge88', 'firefox78', 'chrome87', 'safari13'],
     rollupOptions: {
       output: {
         manualChunks: {

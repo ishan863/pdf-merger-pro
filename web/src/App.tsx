@@ -22,6 +22,7 @@ import NotFoundPage from '@/pages/NotFound';
 // Components
 import LoadingScreen from '@/components/LoadingScreen';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import BrowserCompatChecker from '@/components/BrowserCompatChecker';
 
 function App() {
   const { setUser, setLoading } = useAuthStore();
@@ -57,6 +58,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <BrowserCompatChecker />
       <Router>
         <Routes>
           {/* Public routes - Direct access to dashboard */}

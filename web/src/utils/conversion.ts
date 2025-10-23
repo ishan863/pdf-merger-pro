@@ -2,6 +2,7 @@
  * Client-side file conversion utilities
  * Convert images, text, and other formats to PDF
  * Office conversions: Word/Excel (client-side), PowerPoint (unavailable)
+ * Optimized for all browsers including mobile
  */
 
 import { PDFDocument, rgb } from 'pdf-lib';
@@ -9,6 +10,12 @@ import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { 
+  detectBrowser, 
+  checkBrowserSupport, 
+  isFileSizeSafe,
+  getOptimalCanvasScale
+} from './browserCompat';
 
 /**
  * Image to PDF converter (client-side)
@@ -243,9 +250,22 @@ export function getConversionType(mimeType: string): ConversionType {
 
 /**
  * Word to PDF converter (client-side using Mammoth.js)
+ * Optimized for mobile and all browsers
  */
 async function wordToPDF(blob: Blob): Promise<Blob> {
   try {
+    // Check browser support
+    const support = checkBrowserSupport();
+    if (!support.supported) {
+      throw new Error(`Browser not supported: ${support.missing.join(', ')}`);
+    }
+
+    // Check file size
+    const sizeCheck = isFileSizeSafe(blob.size);
+    if (!sizeCheck.safe && sizeCheck.warning) {
+      console.warn(sizeCheck.warning);
+    }
+
     const arrayBuffer = await blob.arrayBuffer();
     const result = await mammoth.convertToHtml({ arrayBuffer });
     const html = result.value;
@@ -263,12 +283,16 @@ async function wordToPDF(blob: Blob): Promise<Blob> {
     container.innerHTML = html;
     document.body.appendChild(container);
 
+    // Get optimal scale for device
+    const scale = getOptimalCanvasScale();
+
     // Convert to canvas
     const canvas = await html2canvas(container, {
-      scale: 2,
+      scale: scale,
       useCORS: true,
       logging: false,
       backgroundColor: '#ffffff',
+      allowTaint: true,
     });
 
     document.body.removeChild(container);
@@ -278,21 +302,22 @@ async function wordToPDF(blob: Blob): Promise<Blob> {
       orientation: 'portrait',
       unit: 'mm',
       format: 'a4',
+      compress: true, // Enable compression for mobile
     });
 
-    const imgData = canvas.toDataURL('image/png');
+    const imgData = canvas.toDataURL('image/jpeg', 0.85); // Use JPEG with 85% quality for smaller size
     const imgWidth = 210;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
     let heightLeft = imgHeight;
     let position = 0;
 
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
     heightLeft -= 297;
 
     while (heightLeft > 0) {
       position = heightLeft - imgHeight;
       pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
       heightLeft -= 297;
     }
 
@@ -304,9 +329,22 @@ async function wordToPDF(blob: Blob): Promise<Blob> {
 
 /**
  * Excel to PDF converter (client-side using SheetJS)
+ * Optimized for mobile and all browsers
  */
 async function excelToPDF(blob: Blob): Promise<Blob> {
   try {
+    // Check browser support
+    const support = checkBrowserSupport();
+    if (!support.supported) {
+      throw new Error(`Browser not supported: ${support.missing.join(', ')}`);
+    }
+
+    // Check file size
+    const sizeCheck = isFileSizeSafe(blob.size);
+    if (!sizeCheck.safe && sizeCheck.warning) {
+      console.warn(sizeCheck.warning);
+    }
+
     const arrayBuffer = await blob.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
 
@@ -314,9 +352,12 @@ async function excelToPDF(blob: Blob): Promise<Blob> {
       orientation: 'landscape',
       unit: 'mm',
       format: 'a4',
+      compress: true, // Enable compression
     });
 
     let isFirstSheet = true;
+    const browser = detectBrowser();
+    const scale = browser.mobile ? 1.0 : 1.5; // Lower scale for mobile
 
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
@@ -333,7 +374,7 @@ async function excelToPDF(blob: Blob): Promise<Blob> {
       if (table) {
         table.style.width = '100%';
         table.style.borderCollapse = 'collapse';
-        table.style.fontSize = '10pt';
+        table.style.fontSize = browser.mobile ? '8pt' : '10pt'; // Smaller font on mobile
         const cells = table.querySelectorAll('td, th');
         cells.forEach((cell: any) => {
           cell.style.border = '1px solid #000';
@@ -344,9 +385,10 @@ async function excelToPDF(blob: Blob): Promise<Blob> {
       document.body.appendChild(container);
 
       const canvas = await html2canvas(container, {
-        scale: 1.5,
+        scale: scale,
         logging: false,
         backgroundColor: '#ffffff',
+        allowTaint: true,
       });
 
       document.body.removeChild(container);
@@ -356,12 +398,12 @@ async function excelToPDF(blob: Blob): Promise<Blob> {
       }
       isFirstSheet = false;
 
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = canvas.toDataURL('image/jpeg', 0.85); // JPEG for smaller size
       const imgWidth = 277;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
       pdf.text(sheetName, 10, 10);
-      pdf.addImage(imgData, 'PNG', 10, 15, imgWidth, Math.min(imgHeight, 180));
+      pdf.addImage(imgData, 'JPEG', 10, 15, imgWidth, Math.min(imgHeight, 180));
     }
 
     return pdf.output('blob');
