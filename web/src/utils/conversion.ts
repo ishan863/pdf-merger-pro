@@ -1,10 +1,14 @@
 /**
  * Client-side file conversion utilities
  * Convert images, text, and other formats to PDF
- * Server-side conversions orchestrated separately with explicit consent
+ * Office conversions: Word/Excel (client-side), PowerPoint (unavailable)
  */
 
 import { PDFDocument, rgb } from 'pdf-lib';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 /**
  * Image to PDF converter (client-side)
@@ -198,6 +202,11 @@ export function canConvertClientSide(mimeType: string): boolean {
     'text/plain',
     'text/markdown',
     'text/csv',
+    // Office docs - Word and Excel now supported client-side
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ];
 
   return clientConvertible.includes(mimeType);
@@ -233,6 +242,135 @@ export function getConversionType(mimeType: string): ConversionType {
 }
 
 /**
+ * Word to PDF converter (client-side using Mammoth.js)
+ */
+async function wordToPDF(blob: Blob): Promise<Blob> {
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    const html = result.value;
+
+    // Create temporary container for rendering
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.width = '210mm'; // A4 width
+    container.style.padding = '20mm';
+    container.style.fontFamily = 'Arial, sans-serif';
+    container.style.fontSize = '12pt';
+    container.style.lineHeight = '1.5';
+    container.style.backgroundColor = '#ffffff';
+    container.innerHTML = html;
+    document.body.appendChild(container);
+
+    // Convert to canvas
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#ffffff',
+    });
+
+    document.body.removeChild(container);
+
+    // Create PDF
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const imgWidth = 210;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    heightLeft -= 297;
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= 297;
+    }
+
+    return pdf.output('blob');
+  } catch (error: any) {
+    throw new Error(`Word conversion failed: ${error.message}`);
+  }
+}
+
+/**
+ * Excel to PDF converter (client-side using SheetJS)
+ */
+async function excelToPDF(blob: Blob): Promise<Blob> {
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    let isFirstSheet = true;
+
+    for (const sheetName of workbook.SheetNames) {
+      const worksheet = workbook.Sheets[sheetName];
+      const html = XLSX.utils.sheet_to_html(worksheet);
+
+      const container = document.createElement('div');
+      container.style.position = 'absolute';
+      container.style.left = '-9999px';
+      container.style.width = '297mm';
+      container.style.padding = '10mm';
+      container.innerHTML = html;
+
+      const table = container.querySelector('table');
+      if (table) {
+        table.style.width = '100%';
+        table.style.borderCollapse = 'collapse';
+        table.style.fontSize = '10pt';
+        const cells = table.querySelectorAll('td, th');
+        cells.forEach((cell: any) => {
+          cell.style.border = '1px solid #000';
+          cell.style.padding = '4px';
+        });
+      }
+
+      document.body.appendChild(container);
+
+      const canvas = await html2canvas(container, {
+        scale: 1.5,
+        logging: false,
+        backgroundColor: '#ffffff',
+      });
+
+      document.body.removeChild(container);
+
+      if (!isFirstSheet) {
+        pdf.addPage();
+      }
+      isFirstSheet = false;
+
+      const imgData = canvas.toDataURL('image/png');
+      const imgWidth = 277;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      pdf.text(sheetName, 10, 10);
+      pdf.addImage(imgData, 'PNG', 10, 15, imgWidth, Math.min(imgHeight, 180));
+    }
+
+    return pdf.output('blob');
+  } catch (error: any) {
+    throw new Error(`Excel conversion failed: ${error.message}`);
+  }
+}
+
+/**
  * Main conversion dispatcher (client-side)
  */
 export async function convertToPDF(blob: Blob, fileName: string, mimeType: string): Promise<Blob> {
@@ -246,7 +384,21 @@ export async function convertToPDF(blob: Blob, fileName: string, mimeType: strin
     case 'csv-pdf':
       return csvToSimplePDF(blob);
     case 'office-pdf':
-      throw new Error('Office conversions require server processing (server-side with consent)');
+      // Handle Office documents
+      if (mimeType === 'application/msword' || 
+          mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        return wordToPDF(blob);
+      }
+      if (mimeType === 'application/vnd.ms-excel' || 
+          mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+        return excelToPDF(blob);
+      }
+      // PowerPoint not supported
+      if (mimeType === 'application/vnd.ms-powerpoint' || 
+          mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+        throw new Error('PowerPoint conversion is currently unavailable. Please convert your file manually at https://www.ilovepdf.com/powerpoint_to_pdf');
+      }
+      throw new Error('Office conversion not supported for this file type');
     default:
       throw new Error(`Unsupported file type: ${mimeType}`);
   }
