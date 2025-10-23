@@ -1,14 +1,24 @@
 /**
  * Action Logger - Firestore Integration
  * Logs user PDF operations with metadata only (no file contents)
- * Data Logged: User ID, Action, Timestamp, File Stats, Duration
+ * Data Logged: Session ID, Action, Timestamp, File Stats, Duration
  */
 
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
+// Generate anonymous session ID
+const getSessionId = (): string => {
+  let sessionId = sessionStorage.getItem('pdf_session_id');
+  if (!sessionId) {
+    sessionId = `anon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    sessionStorage.setItem('pdf_session_id', sessionId);
+  }
+  return sessionId;
+};
+
 export interface ActionLog {
-  userId: string;
+  userId: string; // Now stores sessionId for anonymous users
   action: 'merge' | 'split' | 'convert' | 'download' | 'page_remove';
   timestamp: any; // Firestore serverTimestamp
   status: 'success' | 'error';
@@ -24,23 +34,20 @@ export interface ActionLog {
 
 /**
  * Log action to Firestore
- * @param userId - Current user ID
+ * @param userId - Current user ID (optional, will use session ID if not provided)
  * @param action - Type of action performed
  * @param data - Action metadata
  */
 export const logAction = async (
-  userId: string,
+  userId: string | null | undefined,
   action: ActionLog['action'],
   data: Omit<ActionLog, 'userId' | 'action' | 'timestamp'>
 ): Promise<void> => {
-  if (!userId) {
-    console.warn('Action logger: No userId provided');
-    return;
-  }
-
   try {
+    const sessionId = userId || getSessionId();
+    
     const logEntry: ActionLog = {
-      userId,
+      userId: sessionId,
       action,
       timestamp: serverTimestamp(),
       ...data,
@@ -48,7 +55,7 @@ export const logAction = async (
 
     // Add to Firestore audit_logs collection
     await addDoc(collection(db, 'audit_logs'), logEntry);
-    console.log(`✓ Action logged: ${action} for user ${userId}`);
+    console.log(`✓ Action logged: ${action} for session ${sessionId}`);
   } catch (error) {
     console.error('Failed to log action:', error);
     // Don't throw - logging should not break the app
@@ -59,7 +66,7 @@ export const logAction = async (
  * Log merge operation
  */
 export const logMergeAction = async (
-  userId: string,
+  userId: string | null | undefined,
   fileCount: number,
   totalPages: number,
   inputSize: number,
@@ -83,7 +90,7 @@ export const logMergeAction = async (
  * Log split operation
  */
 export const logSplitAction = async (
-  userId: string,
+  userId: string | null | undefined,
   pages: number,
   inputSize: number,
   outputSize: number,
@@ -107,7 +114,7 @@ export const logSplitAction = async (
  * Log convert operation
  */
 export const logConvertAction = async (
-  userId: string,
+  userId: string | null | undefined,
   format: string,
   inputSize: number,
   outputSize: number,
@@ -129,7 +136,7 @@ export const logConvertAction = async (
  * Log download operation
  */
 export const logDownloadAction = async (
-  userId: string,
+  userId: string | null | undefined,
   format: string,
   fileSize: number,
   status: 'success' | 'error' = 'success',

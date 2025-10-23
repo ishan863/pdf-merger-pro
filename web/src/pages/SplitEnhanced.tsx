@@ -207,18 +207,16 @@ const SplitEnhanced: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // Log action to Firestore
-      if (user?.uid) {
-        await logSplitAction(
-          user.uid,
-          selectedPages.length,
-          inputSize,
-          outputSize,
-          duration,
-          'PDF',
-          'success'
-        );
-      }
+      // Log action to Firestore (works for both authenticated and anonymous users)
+      await logSplitAction(
+        user?.uid,
+        selectedPages.length,
+        inputSize,
+        outputSize,
+        duration,
+        'PDF',
+        'success'
+      );
 
       toast.success(`Split PDF with ${selectedPages.length} page(s) downloaded!`);
       setSplitProgress(0);
@@ -228,19 +226,17 @@ const SplitEnhanced: React.FC = () => {
       const duration = Date.now() - startTime;
       console.error('Split error:', error);
       
-      // Log error to Firestore
-      if (user?.uid) {
-        await logSplitAction(
-          user.uid,
-          selectedPages.length,
-          file.size,
-          0,
-          duration,
-          'PDF',
-          'error',
-          error.message
-        );
-      }
+      // Log error to Firestore (works for both authenticated and anonymous users)
+      await logSplitAction(
+        user?.uid,
+        selectedPages.length,
+        file.size,
+        0,
+        duration,
+        'PDF',
+        'error',
+        error.message
+      );
       
       toast.error(`Failed to split PDF: ${error.message}`);
     } finally {

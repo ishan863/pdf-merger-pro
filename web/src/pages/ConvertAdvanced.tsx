@@ -264,17 +264,15 @@ const ConvertAdvanced: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // Log action to Firestore
-      if (user?.uid) {
-        await logConvertAction(
-          user.uid,
-          'Image to PDF',
-          inputSize,
-          outputSize,
-          duration,
-          'success'
-        );
-      }
+      // Log action to Firestore (works for both authenticated and anonymous users)
+      await logConvertAction(
+        user?.uid,
+        'Image to PDF',
+        inputSize,
+        outputSize,
+        duration,
+        'success'
+      );
 
       toast.success('Images converted to PDF and downloaded successfully!');
       setConvertProgress(0);
@@ -284,18 +282,16 @@ const ConvertAdvanced: React.FC = () => {
       const duration = Date.now() - startTime;
       console.error('Convert error:', error);
       
-      // Log error to Firestore
-      if (user?.uid) {
-        await logConvertAction(
-          user.uid,
-          'Image to PDF',
-          files.reduce((sum, f) => sum + f.file.size, 0),
-          0,
-          duration,
-          'error',
-          error.message
-        );
-      }
+      // Log error to Firestore (works for both authenticated and anonymous users)
+      await logConvertAction(
+        user?.uid,
+        'Image to PDF',
+        files.reduce((sum, f) => sum + f.file.size, 0),
+        0,
+        duration,
+        'error',
+        error.message
+      );
       
       toast.error(`Failed to convert: ${error.message}`);
     } finally {

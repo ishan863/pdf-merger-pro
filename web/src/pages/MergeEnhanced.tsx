@@ -270,18 +270,16 @@ const MergeEnhanced: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // Log action to Firestore
-      if (user?.uid) {
-        await logMergeAction(
-          user.uid,
-          files.length,
-          totalPages,
-          inputSize,
-          outputSize,
-          duration,
-          'success'
-        );
-      }
+      // Log action to Firestore (works for both authenticated and anonymous users)
+      await logMergeAction(
+        user?.uid,
+        files.length,
+        totalPages,
+        inputSize,
+        outputSize,
+        duration,
+        'success'
+      );
 
       toast.success('PDFs merged and downloaded successfully!');
       setMergeProgress(0);
@@ -291,19 +289,17 @@ const MergeEnhanced: React.FC = () => {
       const duration = Date.now() - startTime;
       console.error('Merge error:', error);
       
-      // Log error to Firestore
-      if (user?.uid) {
-        await logMergeAction(
-          user.uid,
-          files.length,
-          allPages.length,
-          files.reduce((sum, f) => sum + f.file.size, 0),
-          0,
-          duration,
-          'error',
-          error.message
-        );
-      }
+      // Log error to Firestore (works for both authenticated and anonymous users)
+      await logMergeAction(
+        user?.uid,
+        files.length,
+        allPages.length,
+        files.reduce((sum, f) => sum + f.file.size, 0),
+        0,
+        duration,
+        'error',
+        error.message
+      );
       
       toast.error(`Failed to merge PDFs: ${error.message}`);
     } finally {
