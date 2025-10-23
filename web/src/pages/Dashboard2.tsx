@@ -300,9 +300,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onNewFile,
   onFileShare,
 }) => {
-    const navigate = useNavigate();
-  const location = useLocation();
-  const { files } = useFileStore();
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
