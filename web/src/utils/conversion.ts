@@ -9,13 +9,6 @@ import { PDFDocument, rgb } from 'pdf-lib';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
-import { 
-  detectBrowser, 
-  checkBrowserSupport, 
-  isFileSizeSafe,
-  getOptimalCanvasScale
-} from './browserCompat';
 
 /**
  * Image to PDF converter (client-side)
@@ -250,75 +243,41 @@ export function getConversionType(mimeType: string): ConversionType {
 
 /**
  * Word to PDF converter (client-side using Mammoth.js)
- * Optimized for mobile and all browsers
+ * Uses text extraction for reliable conversion
  */
 async function wordToPDF(blob: Blob): Promise<Blob> {
   try {
-    // Check browser support
-    const support = checkBrowserSupport();
-    if (!support.supported) {
-      throw new Error(`Browser not supported: ${support.missing.join(', ')}`);
-    }
-
-    // Check file size
-    const sizeCheck = isFileSizeSafe(blob.size);
-    if (!sizeCheck.safe && sizeCheck.warning) {
-      console.warn(sizeCheck.warning);
-    }
-
     const arrayBuffer = await blob.arrayBuffer();
-    const result = await mammoth.convertToHtml({ arrayBuffer });
-    const html = result.value;
+    
+    // Extract raw text from the Word document
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    const text = result.value;
+    
+    if (!text || text.trim().length === 0) {
+      throw new Error('No text content found in Word document');
+    }
 
-    // Create temporary container for rendering
-    const container = document.createElement('div');
-    container.style.position = 'absolute';
-    container.style.left = '-9999px';
-    container.style.width = '210mm'; // A4 width
-    container.style.padding = '20mm';
-    container.style.fontFamily = 'Arial, sans-serif';
-    container.style.fontSize = '12pt';
-    container.style.lineHeight = '1.5';
-    container.style.backgroundColor = '#ffffff';
-    container.innerHTML = html;
-    document.body.appendChild(container);
-
-    // Get optimal scale for device
-    const scale = getOptimalCanvasScale();
-
-    // Convert to canvas
-    const canvas = await html2canvas(container, {
-      scale: scale,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#ffffff',
-      allowTaint: true,
-    });
-
-    document.body.removeChild(container);
-
-    // Create PDF
+    // Create PDF using jsPDF
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
       format: 'a4',
-      compress: true, // Enable compression for mobile
     });
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.85); // Use JPEG with 85% quality for smaller size
-    const imgWidth = 210;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    let heightLeft = imgHeight;
-    let position = 0;
+    // Split text into lines and add to PDF
+    const lines = pdf.splitTextToSize(text, 170); // 170mm width with margins
+    let yPosition = 20;
+    const lineHeight = 7;
+    const pageHeight = 280;
 
-    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-    heightLeft -= 297;
-
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-      heightLeft -= 297;
+    for (let i = 0; i < lines.length; i++) {
+      if (yPosition > pageHeight) {
+        pdf.addPage();
+        yPosition = 20;
+      }
+      
+      pdf.text(lines[i], 20, yPosition);
+      yPosition += lineHeight;
     }
 
     return pdf.output('blob');
@@ -329,22 +288,10 @@ async function wordToPDF(blob: Blob): Promise<Blob> {
 
 /**
  * Excel to PDF converter (client-side using SheetJS)
- * Optimized for mobile and all browsers
+ * Uses data extraction for reliable conversion
  */
 async function excelToPDF(blob: Blob): Promise<Blob> {
   try {
-    // Check browser support
-    const support = checkBrowserSupport();
-    if (!support.supported) {
-      throw new Error(`Browser not supported: ${support.missing.join(', ')}`);
-    }
-
-    // Check file size
-    const sizeCheck = isFileSizeSafe(blob.size);
-    if (!sizeCheck.safe && sizeCheck.warning) {
-      console.warn(sizeCheck.warning);
-    }
-
     const arrayBuffer = await blob.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array' });
 
@@ -352,58 +299,55 @@ async function excelToPDF(blob: Blob): Promise<Blob> {
       orientation: 'landscape',
       unit: 'mm',
       format: 'a4',
-      compress: true, // Enable compression
     });
 
     let isFirstSheet = true;
-    const browser = detectBrowser();
-    const scale = browser.mobile ? 1.0 : 1.5; // Lower scale for mobile
 
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
-      const html = XLSX.utils.sheet_to_html(worksheet);
-
-      const container = document.createElement('div');
-      container.style.position = 'absolute';
-      container.style.left = '-9999px';
-      container.style.width = '297mm';
-      container.style.padding = '10mm';
-      container.innerHTML = html;
-
-      const table = container.querySelector('table');
-      if (table) {
-        table.style.width = '100%';
-        table.style.borderCollapse = 'collapse';
-        table.style.fontSize = browser.mobile ? '8pt' : '10pt'; // Smaller font on mobile
-        const cells = table.querySelectorAll('td, th');
-        cells.forEach((cell: any) => {
-          cell.style.border = '1px solid #000';
-          cell.style.padding = '4px';
-        });
+      
+      // Convert sheet to JSON data
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
+      
+      if (!jsonData || jsonData.length === 0) {
+        continue;
       }
-
-      document.body.appendChild(container);
-
-      const canvas = await html2canvas(container, {
-        scale: scale,
-        logging: false,
-        backgroundColor: '#ffffff',
-        allowTaint: true,
-      });
-
-      document.body.removeChild(container);
 
       if (!isFirstSheet) {
         pdf.addPage();
       }
       isFirstSheet = false;
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.85); // JPEG for smaller size
-      const imgWidth = 277;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      // Add sheet title
+      pdf.setFontSize(14);
+      pdf.text(sheetName, 15, 15);
 
-      pdf.text(sheetName, 10, 10);
-      pdf.addImage(imgData, 'JPEG', 10, 15, imgWidth, Math.min(imgHeight, 180));
+      // Add table data
+      pdf.setFontSize(8);
+      let yPosition = 25;
+      const colWidth = 35;
+      const rowHeight = 6;
+
+      for (let rowIndex = 0; rowIndex < Math.min(jsonData.length, 40); rowIndex++) {
+        const row = jsonData[rowIndex] as any[];
+        let xPosition = 15;
+
+        for (let colIndex = 0; colIndex < Math.min(row.length, 8); colIndex++) {
+          const cellValue = row[colIndex] ? String(row[colIndex]).substring(0, 15) : '';
+          pdf.text(cellValue, xPosition, yPosition);
+          xPosition += colWidth;
+        }
+        
+        yPosition += rowHeight;
+        
+        if (yPosition > 190) {
+          break; // Prevent overflow
+        }
+      }
+
+      if (jsonData.length > 40) {
+        pdf.text('... (data truncated)', 15, yPosition + 5);
+      }
     }
 
     return pdf.output('blob');

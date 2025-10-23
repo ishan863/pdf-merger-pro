@@ -24,6 +24,7 @@ import Sidebar from '@/components/Sidebar';
 import toast from 'react-hot-toast';
 import { logConvertAction } from '@/utils/actionLogger';
 import { useAuthStore } from '@/context/authContext';
+import { convertWordToPDF, convertExcelToPDF } from '@/utils/officeConverter';
 
 interface ConvertFile {
   id: string;
@@ -204,10 +205,10 @@ const ConvertAdvanced: React.FC = () => {
     }
   };
 
-  // Convert images to PDF
+  // Convert files to PDF (supports images and Office documents)
   const convertToPDF = async () => {
     if (files.length === 0) {
-      toast.error('Please upload at least one image');
+      toast.error('Please upload at least one file');
       return;
     }
 
@@ -216,65 +217,130 @@ const ConvertAdvanced: React.FC = () => {
     const startTime = Date.now();
 
     try {
+      // Check if we have mixed file types or single Office document
+      const hasImages = files.some(f => f.file.type.startsWith('image/'));
+      const hasOfficeFiles = files.some(f => 
+        f.file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        f.file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        f.file.type === 'application/msword' ||
+        f.file.type === 'application/vnd.ms-excel'
+      );
+
+      const inputSize = files.reduce((sum, f) => sum + f.file.size, 0);
+      let conversionType = 'Mixed';
+
+      // Handle single Office file conversion
+      if (files.length === 1 && hasOfficeFiles && !hasImages) {
+        const file = files[0];
+        const mimeType = file.file.type;
+        let pdfBlob: Blob;
+
+        if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+            mimeType === 'application/msword') {
+          conversionType = 'Word to PDF';
+          pdfBlob = await convertWordToPDF(file.file);
+        } else if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+                   mimeType === 'application/vnd.ms-excel') {
+          conversionType = 'Excel to PDF';
+          pdfBlob = await convertExcelToPDF(file.file);
+        } else {
+          throw new Error('Unsupported Office document type');
+        }
+
+        const outputSize = pdfBlob.size;
+        const duration = Date.now() - startTime;
+
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `converted_${file.file.name.replace(/\.[^/.]+$/, '')}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        // Log action to Firestore
+        await logConvertAction(
+          user?.uid,
+          conversionType,
+          inputSize,
+          outputSize,
+          duration,
+          'success'
+        );
+
+        toast.success(`${conversionType} completed successfully!`);
+        setConvertProgress(0);
+        setFiles([]);
+        setSelectedFileId(null);
+        return;
+      }
+
+      // Handle images or mixed files - merge into single PDF
       const pdfDoc = await PDFDocument.create();
       let currentProgress = 0;
       const totalFiles = files.length;
-      const inputSize = files.reduce((sum, f) => sum + f.file.size, 0);
+      conversionType = hasImages ? 'Image to PDF' : 'File to PDF';
 
       for (let index = 0; index < files.length; index++) {
         const convertFile = files[index];
-        
-        // Read file as bytes
-        const arrayBuffer = await convertFile.file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-
-        // Determine image type
-        let image;
         const mimeType = convertFile.file.type;
 
-        if (mimeType === 'image/jpeg') {
-          image = await pdfDoc.embedJpg(bytes);
-        } else if (mimeType === 'image/png') {
-          image = await pdfDoc.embedPng(bytes);
-        } else if (mimeType === 'image/gif') {
-          // For GIF, we'll treat it as PNG (PDF doesn't support animated GIFs directly)
-          image = await pdfDoc.embedPng(bytes);
-        } else if (mimeType === 'image/webp') {
-          // Convert WebP to PNG first (simplified approach)
-          image = await pdfDoc.embedPng(bytes);
+        // Handle Office documents by converting them first
+        if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || 
+            mimeType === 'application/msword') {
+          const wordPdfBlob = await convertWordToPDF(convertFile.file);
+          const wordPdfBytes = await wordPdfBlob.arrayBuffer();
+          const wordPdfDoc = await PDFDocument.load(wordPdfBytes);
+          const wordPages = await pdfDoc.copyPages(wordPdfDoc, wordPdfDoc.getPageIndices());
+          wordPages.forEach(page => pdfDoc.addPage(page));
+        } else if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+                   mimeType === 'application/vnd.ms-excel') {
+          const excelPdfBlob = await convertExcelToPDF(convertFile.file);
+          const excelPdfBytes = await excelPdfBlob.arrayBuffer();
+          const excelPdfDoc = await PDFDocument.load(excelPdfBytes);
+          const excelPages = await pdfDoc.copyPages(excelPdfDoc, excelPdfDoc.getPageIndices());
+          excelPages.forEach(page => pdfDoc.addPage(page));
+        } else if (mimeType.startsWith('image/')) {
+          // Handle images
+          const arrayBuffer = await convertFile.file.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+
+          let image;
+          if (mimeType === 'image/jpeg') {
+            image = await pdfDoc.embedJpg(bytes);
+          } else if (mimeType === 'image/png') {
+            image = await pdfDoc.embedPng(bytes);
+          } else if (mimeType === 'image/gif') {
+            image = await pdfDoc.embedPng(bytes);
+          } else if (mimeType === 'image/webp') {
+            image = await pdfDoc.embedPng(bytes);
+          }
+
+          if (image) {
+            const { width, height } = image.scale(1);
+            const page = pdfDoc.addPage([width, height]);
+
+            // Apply rotation
+            const rotation = files[index].rotation;
+            if (rotation !== 0) {
+              page.setRotation(degrees(rotation));
+            }
+
+            page.drawImage(image, {
+              x: 0,
+              y: 0,
+              width,
+              height,
+            });
+          }
         }
-
-        // Only proceed if image was successfully embedded
-        if (!image) {
-          toast.error(`Failed to process image: ${convertFile.file.name}`);
-          continue;
-        }
-
-        // Get image dimensions
-        const { width, height } = image.scale(1);
-
-        // Create page with image dimensions
-        const page = pdfDoc.addPage([width, height]);
-
-        // Apply rotation
-        const rotation = files[index].rotation;
-        if (rotation !== 0) {
-          page.setRotation(degrees(rotation));
-        }
-
-        // Draw image
-        page.drawImage(image!, {
-          x: 0,
-          y: 0,
-          width,
-          height,
-        });
 
         currentProgress = ((index + 1) / totalFiles) * 100;
         setConvertProgress(currentProgress);
       }
 
-      // Save and download
+      // Save and download merged PDF
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
       const outputSize = blob.size;
@@ -289,17 +355,17 @@ const ConvertAdvanced: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      // Log action to Firestore (works for both authenticated and anonymous users)
+      // Log action to Firestore
       await logConvertAction(
         user?.uid,
-        'Image to PDF',
+        conversionType,
         inputSize,
         outputSize,
         duration,
         'success'
       );
 
-      toast.success('Images converted to PDF and downloaded successfully!');
+      toast.success('Files converted to PDF and downloaded successfully!');
       setConvertProgress(0);
       setFiles([]);
       setSelectedFileId(null);
@@ -307,10 +373,10 @@ const ConvertAdvanced: React.FC = () => {
       const duration = Date.now() - startTime;
       console.error('Convert error:', error);
       
-      // Log error to Firestore (works for both authenticated and anonymous users)
+      // Log error to Firestore
       await logConvertAction(
         user?.uid,
-        'Image to PDF',
+        'File Conversion',
         files.reduce((sum, f) => sum + f.file.size, 0),
         0,
         duration,
