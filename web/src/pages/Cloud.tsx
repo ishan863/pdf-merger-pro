@@ -9,7 +9,7 @@ const Cloud: React.FC = () => {
     { id: '1', name: 'Project Proposal.pdf', size: 2.5, uploadedAt: new Date(), shared: false },
     { id: '2', name: 'Budget 2024.pdf', size: 1.8, uploadedAt: new Date(), shared: true },
   ]);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
 
   return (
     <div className={`flex h-screen ${isDarkMode ? 'bg-slate-950' : 'bg-white'}`}>

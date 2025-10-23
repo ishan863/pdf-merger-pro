@@ -53,12 +53,13 @@ const MergeEnhanced: React.FC = () => {
   const { user } = useAuthStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [files, setFiles] = useState<MergeFile[]>([]);
   const [allPages, setAllPages] = useState<PDFPage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [mergeProgress, setMergeProgress] = useState(0);
   const [filePageRemovers, setFilePageRemovers] = useState<{ [key: string]: number[] }>({});
+  const [isDragging, setIsDragging] = useState(false);
 
   // Get PDF page count
   const getPdfPageCount = async (file: File): Promise<number> => {
@@ -148,6 +149,30 @@ const MergeEnhanced: React.FC = () => {
 
     setFiles([...files, ...newFiles]);
     setAllPages([...allPages, ...newPages]);
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles.length > 0) {
+      handleFileSelect(droppedFiles);
+    }
   };
 
   // Handle pages removed from page remover
@@ -357,18 +382,25 @@ const MergeEnhanced: React.FC = () => {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
                 className={`w-full rounded-2xl border-2 border-dashed p-16 text-center cursor-pointer transition-all mb-8 ${
-                  isDarkMode
+                  isDragging
+                    ? isDarkMode
+                      ? 'border-blue-500 bg-blue-500/20 scale-105'
+                      : 'border-blue-500 bg-blue-100 scale-105'
+                    : isDarkMode
                     ? 'border-white/20 hover:border-blue-500/50 hover:bg-blue-500/5'
                     : 'border-blue-300 hover:border-blue-500 hover:bg-blue-50'
                 }`}
               >
                 <FiUpload size={48} className="mx-auto mb-4" />
                 <h2 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                  Upload PDFs to Merge
+                  {isDragging ? 'Drop PDFs Here' : 'Upload PDFs to Merge'}
                 </h2>
                 <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
-                  Select 1 or more PDF files
+                  {isDragging ? 'Release to upload' : 'Drag & drop or click to select 1 or more PDF files'}
                 </p>
               </motion.button>
             ) : (
@@ -376,13 +408,20 @@ const MergeEnhanced: React.FC = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
                 className={`w-full p-3 rounded-xl font-medium mb-6 transition-colors ${
-                  isDarkMode
+                  isDragging
+                    ? isDarkMode
+                      ? 'bg-blue-500/40 text-blue-300'
+                      : 'bg-blue-500/40 text-blue-700'
+                    : isDarkMode
                     ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400'
                     : 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-600'
                 }`}
               >
-                + Add More PDFs
+                {isDragging ? '+ Drop PDFs Here' : '+ Add More PDFs'}
               </motion.button>
             )}
 

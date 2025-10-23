@@ -49,12 +49,13 @@ const ConvertAdvanced: React.FC = () => {
   const location = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [files, setFiles] = useState<ConvertFile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [convertProgress, setConvertProgress] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Determine conversion type from URL
   const conversionType = useMemo<ConversionType>(() => {
@@ -152,6 +153,30 @@ const ConvertAdvanced: React.FC = () => {
     if (newFiles.length > 0 && !selectedFileId) {
       setSelectedFileId(newFiles[0].id);
       setCurrentImageIndex(0);
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles.length > 0) {
+      handleFileSelect(droppedFiles);
     }
   };
 
@@ -363,14 +388,27 @@ const ConvertAdvanced: React.FC = () => {
                 {/* Upload Button */}
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full mb-4 p-4 border-2 border-dashed rounded-xl transition-colors"
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`w-full mb-4 p-4 border-2 border-dashed rounded-xl transition-all ${
+                    isDragging ? 'scale-105' : ''
+                  }`}
                   style={{
-                    borderColor: isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(34,197,94,0.3)',
-                    backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(34,197,94,0.05)',
+                    borderColor: isDragging 
+                      ? 'rgba(34,197,94,0.8)' 
+                      : isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(34,197,94,0.3)',
+                    backgroundColor: isDragging
+                      ? 'rgba(34,197,94,0.2)'
+                      : isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(34,197,94,0.05)',
                   }}
                 >
                   <FiUpload size={24} className="mx-auto mb-2" />
-                  <p className="text-sm font-medium">Click to upload {conversionType.id === 'image' ? 'images' : 'files'}</p>
+                  <p className="text-sm font-medium">
+                    {isDragging 
+                      ? `Drop ${conversionType.id === 'image' ? 'images' : 'files'} here` 
+                      : `Drag & drop or click to upload ${conversionType.id === 'image' ? 'images' : 'files'}`}
+                  </p>
                 </button>
 
                 <input

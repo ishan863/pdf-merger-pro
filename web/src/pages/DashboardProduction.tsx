@@ -27,7 +27,7 @@ const DashboardProduction: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
 
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showConvertDropdown, setShowConvertDropdown] = useState(false);
 

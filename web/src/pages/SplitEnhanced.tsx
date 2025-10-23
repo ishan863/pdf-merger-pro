@@ -40,11 +40,12 @@ const SplitEnhanced: React.FC = () => {
   const { user } = useAuthStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<PDFPagePreview[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [splitProgress, setSplitProgress] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Advanced Split Options
   const [splitMode, setSplitMode] = useState<'manual' | 'size' | 'even-odd' | 'auto'>('manual');
@@ -96,6 +97,30 @@ const SplitEnhanced: React.FC = () => {
 
     setFile(selectedFile);
     await generateAllPreviews(selectedFile);
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles.length > 0) {
+      handleFileSelect(droppedFiles);
+    }
   };
 
   // Toggle page selection
@@ -296,18 +321,25 @@ const SplitEnhanced: React.FC = () => {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 onClick={() => fileInputRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
                 className={`w-full rounded-2xl border-2 border-dashed p-16 text-center cursor-pointer transition-all mb-8 ${
-                  isDarkMode
+                  isDragging
+                    ? isDarkMode
+                      ? 'border-purple-500 bg-purple-500/20 scale-105'
+                      : 'border-purple-500 bg-purple-100 scale-105'
+                    : isDarkMode
                     ? 'border-white/20 hover:border-purple-500/50 hover:bg-purple-500/5'
                     : 'border-purple-300 hover:border-purple-500 hover:bg-purple-50'
                 }`}
               >
                 <FiUpload size={48} className="mx-auto mb-4" />
                 <h2 className={`text-2xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                  Upload PDF to Split
+                  {isDragging ? 'Drop PDF Here' : 'Upload PDF to Split'}
                 </h2>
                 <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
-                  Select a PDF file and choose which pages to keep
+                  {isDragging ? 'Release to upload' : 'Drag & drop or click to select a PDF file'}
                 </p>
               </motion.button>
             ) : (

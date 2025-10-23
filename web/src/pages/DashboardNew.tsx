@@ -25,7 +25,7 @@ const DashboardNew: React.FC = () => {
   const navigate = useNavigate();
   const { files, removeFile } = useFileStore();
   
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [showUploadZone, setShowUploadZone] = useState(files.length === 0);

@@ -82,7 +82,7 @@ interface PreviewFile {
 const DashboardEnhanced: React.FC = () => {
   const navigate = useNavigate();
   
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPreview, setSelectedPreview] = useState<PreviewFile | null>(SAMPLE_FILES[0]);
   const [currentPage, setCurrentPage] = useState(0);
