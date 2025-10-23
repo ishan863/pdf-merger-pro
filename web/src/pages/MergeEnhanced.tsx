@@ -12,10 +12,9 @@ import {
   FiGitMerge,
   FiRotateCw,
   FiRotateCcw,
-  FiChevronUp,
-  FiChevronDown,
   FiArrowLeft,
   FiZap,
+  FiMove,
 } from 'react-icons/fi';
 import { PDFDocument, degrees } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -25,6 +24,23 @@ import PageRemover from '@/components/PageRemover';
 import toast from 'react-hot-toast';
 import { logMergeAction } from '@/utils/actionLogger';
 import { useAuthStore } from '@/context/authContext';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // Setup PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -48,6 +64,138 @@ interface MergeFile {
   compressed?: boolean;
 }
 
+// Sortable Page Card Component
+interface SortablePageCardProps {
+  pageData: PDFPage;
+  index: number;
+  isDarkMode: boolean;
+  onRotate: (pageId: string, direction: 'cw' | 'ccw') => void;
+  onRemove: (pageId: string) => void;
+}
+
+const SortablePageCard: React.FC<SortablePageCardProps> = ({
+  pageData,
+  index,
+  isDarkMode,
+  onRotate,
+  onRemove,
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: pageData.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    cursor: isDragging ? 'grabbing' : 'grab',
+  };
+
+  return (
+    <motion.div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      layout
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: isDragging ? 0.5 : 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className={`group relative rounded-lg border backdrop-blur-md overflow-hidden transition-all ${
+        isDragging ? 'scale-105 z-50' : 'hover:scale-105'
+      } ${
+        isDarkMode
+          ? 'bg-white/10 border-white/20 hover:border-white/40'
+          : 'bg-white/40 border-white/50 hover:border-white/60'
+      }`}
+    >
+      {/* Drag Handle */}
+      <div
+        {...listeners}
+        className={`absolute top-2 left-1/2 transform -translate-x-1/2 z-10 px-2 py-1 rounded cursor-grab active:cursor-grabbing ${
+          isDarkMode ? 'bg-green-500/80 text-white' : 'bg-green-500/80 text-white'
+        }`}
+        title="Drag to reorder"
+      >
+        <FiMove size={16} />
+      </div>
+
+      {/* Page Preview */}
+      <div className="aspect-square overflow-hidden bg-black/40">
+        <img
+          src={pageData.preview}
+          alt={`${pageData.fileName} - Page ${pageData.pageNumber}`}
+          className="w-full h-full object-cover pointer-events-none"
+          style={{
+            transform: `rotate(${pageData.rotation}deg)`,
+          }}
+        />
+      </div>
+
+      {/* Page Number Badge */}
+      <div
+        className={`absolute bottom-2 left-2 px-2 py-1 rounded text-xs font-bold ${
+          isDarkMode ? 'bg-blue-500/80 text-white' : 'bg-blue-500/80 text-white'
+        }`}
+      >
+        P{pageData.pageNumber}
+      </div>
+
+      {/* Position Badge */}
+      <div
+        className={`absolute bottom-2 right-2 px-2 py-1 rounded text-xs font-bold ${
+          isDarkMode ? 'bg-purple-500/80 text-white' : 'bg-purple-500/80 text-white'
+        }`}
+      >
+        #{index + 1}
+      </div>
+
+      {/* Hover Controls */}
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+        {/* Rotation Buttons */}
+        <div className="flex gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRotate(pageData.id, 'ccw');
+            }}
+            className="p-2 rounded bg-orange-500/80 hover:bg-orange-600 text-white"
+            title="Rotate Left"
+          >
+            <FiRotateCcw size={16} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRotate(pageData.id, 'cw');
+            }}
+            className="p-2 rounded bg-orange-500/80 hover:bg-orange-600 text-white"
+            title="Rotate Right"
+          >
+            <FiRotateCw size={16} />
+          </button>
+        </div>
+
+        {/* Remove Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(pageData.id);
+          }}
+          className="p-2 rounded bg-red-500/80 hover:bg-red-600 text-white w-10"
+          title="Remove Page"
+        >
+          <FiTrash2 size={16} className="mx-auto" />
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
 const MergeEnhanced: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
@@ -60,6 +208,18 @@ const MergeEnhanced: React.FC = () => {
   const [mergeProgress, setMergeProgress] = useState(0);
   const [filePageRemovers, setFilePageRemovers] = useState<{ [key: string]: number[] }>({});
   const [isDragging, setIsDragging] = useState(false);
+
+  // Drag-and-drop sensors for page reordering
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement required to start drag
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Get PDF page count
   const getPdfPageCount = async (file: File): Promise<number> => {
@@ -222,20 +382,18 @@ const MergeEnhanced: React.FC = () => {
     }
   };
 
-  // Reorder pages (move up/down)
-  const movePageUp = (index: number) => {
-    if (index > 0) {
-      const newPages = [...allPages];
-      [newPages[index - 1], newPages[index]] = [newPages[index], newPages[index - 1]];
-      setAllPages(newPages);
-    }
-  };
+  // Handle drag-and-drop page reordering
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
 
-  const movePageDown = (index: number) => {
-    if (index < allPages.length - 1) {
-      const newPages = [...allPages];
-      [newPages[index + 1], newPages[index]] = [newPages[index], newPages[index + 1]];
-      setAllPages(newPages);
+    if (over && active.id !== over.id) {
+      setAllPages((pages) => {
+        const oldIndex = pages.findIndex((p) => p.id === active.id);
+        const newIndex = pages.findIndex((p) => p.id === over.id);
+
+        return arrayMove(pages, oldIndex, newIndex);
+      });
+      toast.success('Page reordered!', { duration: 1500 });
     }
   };
 
@@ -480,117 +638,45 @@ const MergeEnhanced: React.FC = () => {
                   <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                     All Pages ({allPages.length})
                   </h2>
-                  <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    From {files.length} PDF{files.length !== 1 ? 's' : ''}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs px-3 py-1 rounded-full ${
+                      isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-500/20 text-green-600'
+                    }`}>
+                      <FiMove size={12} className="inline mr-1" />
+                      Drag to reorder
+                    </span>
+                    <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      From {files.length} PDF{files.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
                 </div>
 
-                <motion.div
-                  layout
-                  className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
                 >
-                  {allPages.map((pageData, index) => (
+                  <SortableContext
+                    items={allPages.map((p) => p.id)}
+                    strategy={rectSortingStrategy}
+                  >
                     <motion.div
-                      key={pageData.id}
                       layout
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      className={`group relative rounded-lg border backdrop-blur-md overflow-hidden transition-all hover:scale-105 ${
-                        isDarkMode
-                          ? 'bg-white/10 border-white/20 hover:border-white/40'
-                          : 'bg-white/40 border-white/50 hover:border-white/60'
-                      }`}
+                      className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
                     >
-                      {/* Page Preview */}
-                      <div className="aspect-square overflow-hidden bg-black/40">
-                        <img
-                          src={pageData.preview}
-                          alt={`${pageData.fileName} - Page ${pageData.pageNumber}`}
-                          className="w-full h-full object-cover"
-                          style={{
-                            transform: `rotate(${pageData.rotation}deg)`,
-                          }}
+                      {allPages.map((pageData, index) => (
+                        <SortablePageCard
+                          key={pageData.id}
+                          pageData={pageData}
+                          index={index}
+                          isDarkMode={isDarkMode}
+                          onRotate={rotatePage}
+                          onRemove={removePage}
                         />
-                      </div>
-
-                      {/* Page Number Badge */}
-                      <div className={`absolute top-2 left-2 px-2 py-1 rounded text-xs font-bold ${
-                        isDarkMode
-                          ? 'bg-blue-500/80 text-white'
-                          : 'bg-blue-500/80 text-white'
-                      }`}>
-                        P{pageData.pageNumber}
-                      </div>
-
-                      {/* Position Badge */}
-                      <div className={`absolute top-2 right-2 px-2 py-1 rounded text-xs font-bold ${
-                        isDarkMode
-                          ? 'bg-purple-500/80 text-white'
-                          : 'bg-purple-500/80 text-white'
-                      }`}>
-                        #{index + 1}
-                      </div>
-
-                      {/* Hover Controls */}
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-                        {/* Rotation Buttons */}
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => rotatePage(pageData.id, 'ccw')}
-                            className="p-2 rounded bg-orange-500/80 hover:bg-orange-600 text-white"
-                            title="Rotate Left"
-                          >
-                            <FiRotateCcw size={16} />
-                          </button>
-                          <button
-                            onClick={() => rotatePage(pageData.id, 'cw')}
-                            className="p-2 rounded bg-orange-500/80 hover:bg-orange-600 text-white"
-                            title="Rotate Right"
-                          >
-                            <FiRotateCw size={16} />
-                          </button>
-                        </div>
-
-                        {/* Remove Button */}
-                        <button
-                          onClick={() => removePage(pageData.id)}
-                          className="p-2 rounded bg-red-500/80 hover:bg-red-600 text-white w-10"
-                          title="Remove Page"
-                        >
-                          <FiTrash2 size={16} className="mx-auto" />
-                        </button>
-                      </div>
-
-                      {/* Order Controls (Bottom) */}
-                      <div className="absolute bottom-0 left-0 right-0 flex gap-1 p-1 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => movePageUp(index)}
-                          disabled={index === 0}
-                          className="flex-1 p-1 rounded bg-green-500/80 hover:bg-green-600 disabled:opacity-30 text-white text-xs"
-                          title="Move Up"
-                        >
-                          <FiChevronUp size={14} className="mx-auto" />
-                        </button>
-                        <button
-                          onClick={() => movePageDown(index)}
-                          disabled={index === allPages.length - 1}
-                          className="flex-1 p-1 rounded bg-green-500/80 hover:bg-green-600 disabled:opacity-30 text-white text-xs"
-                          title="Move Down"
-                        >
-                          <FiChevronDown size={14} className="mx-auto" />
-                        </button>
-                      </div>
-
-                      {/* File Name */}
-                      <div className={`p-2 text-xs truncate ${
-                        isDarkMode ? 'bg-black/40 text-gray-200' : 'bg-black/30 text-gray-100'
-                      }`}>
-                        {pageData.fileName}
-                      </div>
+                      ))}
                     </motion.div>
-                  ))}
-                </motion.div>
+                  </SortableContext>
+                </DndContext>
               </motion.div>
             )}
 
