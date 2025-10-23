@@ -8,7 +8,6 @@ import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { PDFDocument } from 'pdf-lib';
 
 /**
  * Convert Word document to PDF
@@ -77,7 +76,8 @@ export async function convertWordToPDF(file: File): Promise<Blob> {
     return pdf.output('blob');
   } catch (error) {
     console.error('Word to PDF conversion failed:', error);
-    throw new Error(`Failed to convert Word document: ${error.message}`);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Failed to convert Word document: ${errorMessage}`);
   }
 }
 
@@ -162,7 +162,8 @@ export async function convertExcelToPDF(file: File): Promise<Blob> {
     return pdf.output('blob');
   } catch (error) {
     console.error('Excel to PDF conversion failed:', error);
-    throw new Error(`Failed to convert Excel: ${error.message}`);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Failed to convert Excel: ${errorMessage}`);
   }
 }
 
@@ -170,7 +171,7 @@ export async function convertExcelToPDF(file: File): Promise<Blob> {
  * Convert PowerPoint to PDF
  * Note: PowerPoint conversion is complex - uses API fallback
  */
-export async function convertPowerPointToPDF(file: File): Promise<Blob> {
+export async function convertPowerPointToPDF(_file: File): Promise<Blob> {
   // PowerPoint binary format is too complex for client-side
   // Options:
   // 1. Use ConvertAPI (1500 free conversions/month)
