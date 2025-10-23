@@ -368,7 +368,7 @@ const MergeEnhanced: React.FC = () => {
                   Upload PDFs to Merge
                 </h2>
                 <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
-                  Select 2 or more PDF files
+                  Select 1 or more PDF files
                 </p>
               </motion.button>
             ) : (
@@ -556,7 +556,7 @@ const MergeEnhanced: React.FC = () => {
             )}
 
             {/* Merge Button */}
-            {allPages.length >= 2 && (
+            {allPages.length >= 1 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -568,7 +568,7 @@ const MergeEnhanced: React.FC = () => {
                   className="px-12 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-bold text-lg hover:shadow-2xl hover:shadow-green-500/50 transition-all disabled:opacity-50 flex items-center gap-3"
                 >
                   <FiGitMerge size={24} />
-                  {isProcessing ? `Merging... ${Math.round(mergeProgress)}%` : 'Merge All Pages & Download'}
+                  {isProcessing ? `Processing... ${Math.round(mergeProgress)}%` : allPages.length === 1 ? 'Process & Download PDF' : 'Merge All Pages & Download'}
                 </button>
               </motion.div>
             )}
