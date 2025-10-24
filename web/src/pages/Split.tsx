@@ -2,18 +2,22 @@
  * Split PDF Component - Comprehensive Split Features
  * Modes: Range (Custom/Fixed), Pages, Size
  * Features: Custom ranges, fixed intervals, page extraction, size-based splitting
- * Version: 2.0.0 - Full iLovePDF-like functionality
+ * Version: 2.0.0 - Full iLovePDF-like functionality with PDF previews
  */
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiScissors, FiPlus, FiTrash2, FiUpload, FiFile } from 'react-icons/fi';
+import { FiScissors, FiPlus, FiTrash2, FiUpload, FiFile, FiCheckCircle, FiCircle } from 'react-icons/fi';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import toast from 'react-hot-toast';
 import { PDFDocument } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
 import { logSplitAction } from '@/utils/actionLogger';
 import { useAuthStore } from '@/context/authContext';
+
+// Setup PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 type SplitMode = 'range' | 'pages' | 'size';
 type RangeMode = 'custom' | 'fixed';
@@ -24,10 +28,17 @@ interface CustomRange {
   to: number;
 }
 
+interface PDFPagePreview {
+  pageNumber: number;
+  preview: string;
+  selected: boolean;
+}
+
 const Split: React.FC = () => {
   const { user } = useAuthStore();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pdfPageCount, setPdfPageCount] = useState<number>(0);
+  const [pagePreviews, setPagePreviews] = useState<PDFPagePreview[]>([]);
   const [splitMode, setSplitMode] = useState<SplitMode>('range');
   const [rangeMode, setRangeMode] = useState<RangeMode>('custom');
   const [customRanges, setCustomRanges] = useState<CustomRange[]>([
@@ -40,10 +51,11 @@ const Split: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSplitting, setIsSplitting] = useState(false);
 
-  // Load PDF and get page count
+  // Load PDF and get page count + previews
   useEffect(() => {
     if (selectedFile) {
       loadPdfPageCount(selectedFile);
+      generateAllPreviews(selectedFile);
     }
   }, [selectedFile]);
 
@@ -58,10 +70,60 @@ const Split: React.FC = () => {
     }
   };
 
+  // Generate all page previews
+  const generateAllPreviews = async (file: File) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+      const pageCount = pdf.numPages;
+      const previews: PDFPagePreview[] = [];
+
+      for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        const viewport = page.getViewport({ scale: 1.0 });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        await page.render({ canvasContext: context!, viewport }).promise;
+        const preview = canvas.toDataURL();
+
+        previews.push({
+          pageNumber: pageNum,
+          preview,
+          selected: false,
+        });
+      }
+
+      setPagePreviews(previews);
+    } catch (error) {
+      console.error('Failed to generate previews:', error);
+      toast.error('Failed to generate page previews');
+    }
+  };
+
+  const togglePageSelection = (pageNumber: number) => {
+    setPagePreviews(
+      pagePreviews.map((p) =>
+        p.pageNumber === pageNumber ? { ...p, selected: !p.selected } : p
+      )
+    );
+  };
+
+  const selectAllPages = () => {
+    setPagePreviews(pagePreviews.map((p) => ({ ...p, selected: true })));
+  };
+
+  const deselectAllPages = () => {
+    setPagePreviews(pagePreviews.map((p) => ({ ...p, selected: false })));
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type === 'application/pdf') {
       setSelectedFile(file);
+      setPagePreviews([]); // Clear previous previews
       toast.success(`Loaded: ${file.name}`);
     } else {
       toast.error('Please select a valid PDF file');
@@ -147,6 +209,47 @@ const Split: React.FC = () => {
     const startTime = Date.now();
 
     try {
+      const arrayBuffer = await selectedFile.arrayBuffer();
+      const originalPdf = await PDFDocument.load(arrayBuffer);
+
+      // Check if user manually selected pages
+      const selectedPages = pagePreviews.filter((p) => p.selected);
+      const hasManualSelection = selectedPages.length > 0;
+
+      if (hasManualSelection) {
+        // Manual selection mode - extract selected pages only
+        const selectedPdf = await PDFDocument.create();
+        const selectedPageIndices = selectedPages.map((p) => p.pageNumber - 1);
+        const copiedPages = await selectedPdf.copyPages(originalPdf, selectedPageIndices);
+        copiedPages.forEach((page) => selectedPdf.addPage(page));
+
+        const pdfBytes = await selectedPdf.save();
+        const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+
+        // Download
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${selectedFile.name.replace('.pdf', '')}_selected_pages.pdf`;
+        link.click();
+        URL.revokeObjectURL(url);
+
+        // Log action
+        await logSplitAction(
+          user?.uid,
+          selectedPages.length,
+          selectedFile.size,
+          blob.size,
+          Date.now() - startTime,
+          'PDF',
+          'success'
+        );
+
+        toast.success(`Extracted ${selectedPages.length} selected pages!`);
+        return;
+      }
+
+      // Otherwise, use the configured split mode
       const ranges = generateRangesFromMode();
 
       if (ranges.length === 0) {
@@ -163,9 +266,6 @@ const Split: React.FC = () => {
           return;
         }
       }
-
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      const originalPdf = await PDFDocument.load(arrayBuffer);
 
       if (mergeRanges && splitMode === 'range') {
         // Merge all ranges into one PDF
@@ -729,6 +829,102 @@ const Split: React.FC = () => {
                     )}
                   </AnimatePresence>
                 </motion.div>
+
+                {/* Page Previews Grid */}
+                {pagePreviews.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`rounded-2xl border p-6 mb-6 ${
+                      isDarkMode
+                        ? 'bg-white/5 border-white/10'
+                        : 'bg-white/60 border-gray-200'
+                    } backdrop-blur-xl`}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className={`text-lg font-semibold ${
+                        isDarkMode ? 'text-white' : 'text-slate-900'
+                      }`}>
+                        All Pages ({pagePreviews.length})
+                      </h3>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={selectAllPages}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                            isDarkMode
+                              ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400'
+                              : 'bg-green-100 text-green-600 hover:bg-green-200'
+                          }`}
+                        >
+                          Select All
+                        </button>
+                        <button
+                          onClick={deselectAllPages}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                            isDarkMode
+                              ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
+                              : 'bg-red-100 text-red-600 hover:bg-red-200'
+                          }`}
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+                      {pagePreviews.map((pageData) => (
+                        <motion.div
+                          key={pageData.pageNumber}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-all hover:scale-105 ${
+                            pageData.selected
+                              ? isDarkMode
+                                ? 'bg-blue-500/20 border-blue-500 ring-2 ring-blue-500'
+                                : 'bg-blue-100 border-blue-500 ring-2 ring-blue-500'
+                              : isDarkMode
+                                ? 'bg-white/5 border-white/20 hover:border-white/40'
+                                : 'bg-white/80 border-gray-200 hover:border-gray-400'
+                          }`}
+                          onClick={() => togglePageSelection(pageData.pageNumber)}
+                        >
+                          {/* Page Preview */}
+                          <div className="aspect-[3/4] overflow-hidden bg-gray-900">
+                            <img
+                              src={pageData.preview}
+                              alt={`Page ${pageData.pageNumber}`}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+
+                          {/* Selection Indicator */}
+                          <div className="absolute top-1.5 right-1.5">
+                            {pageData.selected ? (
+                              <FiCheckCircle size={20} className="text-blue-400 drop-shadow-lg" />
+                            ) : (
+                              <FiCircle size={20} className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            )}
+                          </div>
+
+                          {/* Page Number */}
+                          <div className={`absolute top-1.5 left-1.5 px-2 py-0.5 rounded text-xs font-bold ${
+                            isDarkMode
+                              ? 'bg-slate-900/80 text-white'
+                              : 'bg-white/90 text-slate-900'
+                          }`}>
+                            {pageData.pageNumber}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    <p className={`text-sm mt-4 ${
+                      isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                    }`}>
+                      💡 Click on pages to select/deselect them for manual selection mode
+                    </p>
+                  </motion.div>
+                )}
 
                 {/* Split Button */}
                 <motion.button
