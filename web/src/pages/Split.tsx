@@ -1,200 +1,757 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { FiScissors, FiPlus } from 'react-icons/fi';
-import { useFileStore } from '@/context/fileContext';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { FiScissors, FiPlus, FiTrash2, FiUpload, FiFile } from 'react-icons/fi';
 import Navbar from '@/components/Navbar';
 import Sidebar from '@/components/Sidebar';
 import toast from 'react-hot-toast';
+import { PDFDocument } from 'pdf-lib';
+import { logSplitAction } from '@/utils/actionLogger';
+import { useAuthStore } from '@/context/authContext';
+
+type SplitMode = 'range' | 'pages' | 'size';
+type RangeMode = 'custom' | 'fixed';
+
+interface CustomRange {
+  id: string;
+  from: number;
+  to: number;
+}
 
 const Split: React.FC = () => {
-  const { files } = useFileStore();
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [splitPages, setSplitPages] = useState<{ start: number; end: number }[]>([
-    { start: 1, end: 1 },
+  const { user } = useAuthStore();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pdfPageCount, setPdfPageCount] = useState<number>(0);
+  const [splitMode, setSplitMode] = useState<SplitMode>('range');
+  const [rangeMode, setRangeMode] = useState<RangeMode>('custom');
+  const [customRanges, setCustomRanges] = useState<CustomRange[]>([
+    { id: '1', from: 1, to: 2 },
   ]);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [fixedInterval, setFixedInterval] = useState<number>(2);
+  const [mergeRanges, setMergeRanges] = useState<boolean>(false);
+  const [extractEveryNPages, setExtractEveryNPages] = useState<number>(1);
+  const [splitBySize, setSplitBySize] = useState<number>(5); // MB
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSplitting, setIsSplitting] = useState(false);
 
-  const addSplit = () => {
-    setSplitPages([...splitPages, { start: 1, end: 1 }]);
+  // Load PDF and get page count
+  useEffect(() => {
+    if (selectedFile) {
+      loadPdfPageCount(selectedFile);
+    }
+  }, [selectedFile]);
+
+  const loadPdfPageCount = async (file: File) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer);
+      setPdfPageCount(pdfDoc.getPageCount());
+    } catch (error) {
+      console.error('Failed to load PDF:', error);
+      toast.error('Failed to load PDF file');
+    }
   };
 
-  const removeSplit = (index: number) => {
-    setSplitPages(splitPages.filter((_, i) => i !== index));
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type === 'application/pdf') {
+      setSelectedFile(file);
+      toast.success(`Loaded: ${file.name}`);
+    } else {
+      toast.error('Please select a valid PDF file');
+    }
+  };
+
+  const addCustomRange = () => {
+    const newId = (customRanges.length + 1).toString();
+    setCustomRanges([...customRanges, { id: newId, from: 1, to: 2 }]);
+  };
+
+  const removeCustomRange = (id: string) => {
+    if (customRanges.length > 1) {
+      setCustomRanges(customRanges.filter((range) => range.id !== id));
+    }
+  };
+
+  const updateCustomRange = (id: string, field: 'from' | 'to', value: number) => {
+    setCustomRanges(
+      customRanges.map((range) =>
+        range.id === id ? { ...range, [field]: Math.max(1, value) } : range
+      )
+    );
+  };
+
+  const generateRangesFromMode = (): { from: number; to: number }[] => {
+    if (pdfPageCount === 0) return [];
+
+    switch (splitMode) {
+      case 'range':
+        if (rangeMode === 'custom') {
+          return customRanges.map((r) => ({ from: r.from, to: r.to }));
+        } else {
+          // Fixed interval ranges
+          const ranges: { from: number; to: number }[] = [];
+          for (let i = 1; i <= pdfPageCount; i += fixedInterval) {
+            ranges.push({
+              from: i,
+              to: Math.min(i + fixedInterval - 1, pdfPageCount),
+            });
+          }
+          return ranges;
+        }
+
+      case 'pages':
+        // Extract every N pages
+        const pageRanges: { from: number; to: number }[] = [];
+        for (let i = extractEveryNPages; i <= pdfPageCount; i += extractEveryNPages) {
+          pageRanges.push({ from: i, to: i });
+        }
+        return pageRanges;
+
+      case 'size':
+        // For size-based splitting, we'll approximate based on page count
+        // Assuming roughly equal page sizes
+        const pagesPerSplit = Math.ceil(pdfPageCount / Math.ceil(pdfPageCount / (splitBySize * 2)));
+        const sizeRanges: { from: number; to: number }[] = [];
+        for (let i = 1; i <= pdfPageCount; i += pagesPerSplit) {
+          sizeRanges.push({
+            from: i,
+            to: Math.min(i + pagesPerSplit - 1, pdfPageCount),
+          });
+        }
+        return sizeRanges;
+
+      default:
+        return [];
+    }
   };
 
   const handleSplit = async () => {
-    if (!selectedFile || splitPages.length === 0) {
-      toast.error('Select a file and define splits');
+    if (!selectedFile) {
+      toast.error('Please select a PDF file');
+      return;
+    }
+
+    if (pdfPageCount === 0) {
+      toast.error('Invalid PDF file');
       return;
     }
 
     setIsSplitting(true);
+    const startTime = Date.now();
+
     try {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      toast.success(`Split ${splitPages.length} documents!`);
-    } catch (error) {
-      toast.error('Failed to split file');
+      const ranges = generateRangesFromMode();
+
+      if (ranges.length === 0) {
+        toast.error('No valid ranges to split');
+        setIsSplitting(false);
+        return;
+      }
+
+      // Validate ranges
+      for (const range of ranges) {
+        if (range.from > pdfPageCount || range.to > pdfPageCount) {
+          toast.error(`Invalid range: ${range.from}-${range.to}. PDF has only ${pdfPageCount} pages.`);
+          setIsSplitting(false);
+          return;
+        }
+      }
+
+      const arrayBuffer = await selectedFile.arrayBuffer();
+      const originalPdf = await PDFDocument.load(arrayBuffer);
+
+      if (mergeRanges && splitMode === 'range') {
+        // Merge all ranges into one PDF
+        const mergedPdf = await PDFDocument.create();
+        
+        for (const range of ranges) {
+          const pages = await mergedPdf.copyPages(
+            originalPdf,
+            Array.from({ length: range.to - range.from + 1 }, (_, i) => range.from - 1 + i)
+          );
+          pages.forEach((page) => mergedPdf.addPage(page));
+        }
+
+        const pdfBytes = await mergedPdf.save();
+        const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+        
+        // Download
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${selectedFile.name.replace('.pdf', '')}_merged.pdf`;
+        link.click();
+        URL.revokeObjectURL(url);
+
+        // Log action (pages, inputSize, outputSize, duration, format, status, errorMessage)
+        await logSplitAction(
+          user?.uid,
+          pdfPageCount,
+          selectedFile.size,
+          blob.size,
+          Date.now() - startTime,
+          'PDF',
+          'success'
+        );
+
+        toast.success('Merged PDF downloaded successfully!');
+      } else {
+        // Split into separate PDFs
+        let totalOutputSize = 0;
+
+        for (let i = 0; i < ranges.length; i++) {
+          const range = ranges[i];
+          const splitPdf = await PDFDocument.create();
+
+          const pageIndices = Array.from(
+            { length: range.to - range.from + 1 },
+            (_, idx) => range.from - 1 + idx
+          );
+
+          const pages = await splitPdf.copyPages(originalPdf, pageIndices);
+          pages.forEach((page) => splitPdf.addPage(page));
+
+          const pdfBytes = await splitPdf.save();
+          const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+          totalOutputSize += blob.size;
+
+          // Download each split
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `${selectedFile.name.replace('.pdf', '')}_part_${i + 1}_pages_${range.from}-${range.to}.pdf`;
+          link.click();
+          URL.revokeObjectURL(url);
+
+          // Small delay between downloads
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+
+        // Log action (pages, inputSize, outputSize, duration, format, status, errorMessage)
+        await logSplitAction(
+          user?.uid,
+          pdfPageCount,
+          selectedFile.size,
+          totalOutputSize,
+          Date.now() - startTime,
+          'PDF',
+          'success'
+        );
+
+        toast.success(`Split into ${ranges.length} PDF files!`);
+      }
+    } catch (error: any) {
+      console.error('Split error:', error);
+      
+      // Log error (pages, inputSize, outputSize, duration, format, status, errorMessage)
+      await logSplitAction(
+        user?.uid,
+        pdfPageCount,
+        selectedFile.size,
+        0,
+        Date.now() - startTime,
+        'PDF',
+        'error',
+        error.message
+      );
+      
+      toast.error(`Failed to split: ${error.message}`);
     } finally {
       setIsSplitting(false);
     }
   };
 
   return (
-    <div className={`flex h-screen ${isDarkMode ? 'bg-slate-950' : 'bg-white'}`}>
+    <div className={`flex h-screen transition-colors duration-300 ${
+      isDarkMode ? 'bg-slate-950' : 'bg-gradient-to-br from-blue-50 to-indigo-50'
+    }`}>
       <Sidebar isDarkMode={isDarkMode} />
       <div className="flex-1 flex flex-col">
         <Navbar isDarkMode={isDarkMode} onThemeToggle={() => setIsDarkMode(!isDarkMode)} />
 
-        <div className="flex-1 overflow-auto p-8">
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
-            <h1 className={`text-4xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-              Split & Extract
-            </h1>
-            <p className={`mb-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              Break PDFs into separate documents or extract specific pages
-            </p>
-          </motion.div>
+        <div className="flex-1 overflow-auto p-6">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-6xl mx-auto"
+          >
+            {/* Header */}
+            <div className="mb-8">
+              <h1 className={`text-4xl font-bold mb-2 ${
+                isDarkMode ? 'text-white' : 'text-slate-900'
+              }`}>
+                Split
+              </h1>
+              <p className={`text-lg ${
+                isDarkMode ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                Separate PDF pages into multiple documents
+              </p>
+            </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* File selection */}
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className={`rounded-2xl border p-6 ${
-                isDarkMode
-                  ? 'bg-gradient-to-br from-white/10 to-white/5 border-white/20'
-                  : 'bg-gradient-to-br from-white/60 to-white/40 border-white/30'
-              } backdrop-blur-xl`}
-            >
-              <h2 className={`text-xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                Select File
-              </h2>
-
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {files.length > 0 ? (
-                  files.map((file) => (
-                    <button
-                      key={file.id}
-                      onClick={() => setSelectedFile(file.id)}
-                      className={`w-full p-3 rounded-lg text-left text-sm transition-all ${
-                        selectedFile === file.id
-                          ? isDarkMode
-                            ? 'bg-blue-500/20 border border-blue-500/50'
-                            : 'bg-blue-500/10 border border-blue-500/30'
-                          : isDarkMode
-                            ? 'bg-white/5 hover:bg-white/10'
-                            : 'bg-white/40 hover:bg-white/60'
-                      }`}
-                    >
-                      {file.name}
-                    </button>
-                  ))
-                ) : (
-                  <p className={`text-center py-4 text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    No files available
-                  </p>
-                )}
-              </div>
-            </motion.div>
-
-            {/* Split configurations */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`rounded-2xl border p-6 lg:col-span-2 ${
-                isDarkMode
-                  ? 'bg-gradient-to-br from-white/10 to-white/5 border-white/20'
-                  : 'bg-gradient-to-br from-white/60 to-white/40 border-white/30'
-              } backdrop-blur-xl`}
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                  Split Points
-                </h2>
-                <button
-                  onClick={addSplit}
-                  className="px-4 py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-all flex items-center gap-2 text-sm"
-                >
-                  <FiPlus size={16} />
-                  Add Split
-                </button>
-              </div>
-
-              <div className="space-y-3 max-h-64 overflow-y-auto">
-                {splitPages.map((split, index) => (
-                  <motion.div key={index} className="flex gap-3 items-end">
-                    <div className="flex-1">
-                      <label className={`text-sm font-medium block mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        Pages {index + 1}
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={split.start}
-                          onChange={(e) => {
-                            const newSplits = [...splitPages];
-                            newSplits[index].start = parseInt(e.target.value) || 1;
-                            setSplitPages(newSplits);
-                          }}
-                          className={`flex-1 px-3 py-2 rounded-lg text-sm outline-none ${
-                            isDarkMode
-                              ? 'bg-white/10 text-white border border-white/20'
-                              : 'bg-white/40 text-slate-900 border border-white/30'
-                          }`}
-                          placeholder="Start"
-                        />
-                        <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>to</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={split.end}
-                          onChange={(e) => {
-                            const newSplits = [...splitPages];
-                            newSplits[index].end = parseInt(e.target.value) || 1;
-                            setSplitPages(newSplits);
-                          }}
-                          className={`flex-1 px-3 py-2 rounded-lg text-sm outline-none ${
-                            isDarkMode
-                              ? 'bg-white/10 text-white border border-white/20'
-                              : 'bg-white/40 text-slate-900 border border-white/30'
-                          }`}
-                          placeholder="End"
-                        />
-                      </div>
-                    </div>
-                    {splitPages.length > 1 && (
-                      <button
-                        onClick={() => removeSplit(index)}
-                        className="px-3 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </motion.div>
-                ))}
-              </div>
-
-              <button
-                onClick={handleSplit}
-                disabled={!selectedFile || isSplitting}
-                className="w-full mt-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg font-medium hover:shadow-lg hover:shadow-blue-500/50 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            {/* File Upload Section */}
+            {!selectedFile ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className={`rounded-2xl border-2 border-dashed p-12 text-center ${
+                  isDarkMode
+                    ? 'bg-white/5 border-white/20 hover:border-blue-500/50'
+                    : 'bg-white/60 border-gray-300 hover:border-blue-500'
+                } transition-all duration-300 backdrop-blur-xl`}
               >
-                {isSplitting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Splitting...
-                  </>
-                ) : (
-                  <>
-                    <FiScissors size={20} />
-                    Split & Download
-                  </>
-                )}
-              </button>
-            </motion.div>
-          </div>
+                <input
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="pdf-upload"
+                />
+                <label htmlFor="pdf-upload" className="cursor-pointer">
+                  <FiUpload
+                    className={`mx-auto mb-4 ${
+                      isDarkMode ? 'text-blue-400' : 'text-blue-500'
+                    }`}
+                    size={64}
+                  />
+                  <h3 className={`text-xl font-semibold mb-2 ${
+                    isDarkMode ? 'text-white' : 'text-slate-900'
+                  }`}>
+                    Select PDF file
+                  </h3>
+                  <p className={`text-sm ${
+                    isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                  }`}>
+                    Click to browse or drag and drop
+                  </p>
+                </label>
+              </motion.div>
+            ) : (
+              <>
+                {/* Selected File Info */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`rounded-xl border p-4 mb-6 flex items-center justify-between ${
+                    isDarkMode
+                      ? 'bg-white/5 border-white/10'
+                      : 'bg-white/60 border-gray-200'
+                  } backdrop-blur-xl`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-3 rounded-lg ${
+                      isDarkMode ? 'bg-blue-500/20' : 'bg-blue-100'
+                    }`}>
+                      <FiFile className={isDarkMode ? 'text-blue-400' : 'text-blue-600'} size={24} />
+                    </div>
+                    <div>
+                      <h4 className={`font-semibold ${
+                        isDarkMode ? 'text-white' : 'text-slate-900'
+                      }`}>
+                        {selectedFile.name}
+                      </h4>
+                      <p className={`text-sm ${
+                        isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                      }`}>
+                        {pdfPageCount} pages • {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedFile(null);
+                      setPdfPageCount(0);
+                    }}
+                    className={`px-4 py-2 rounded-lg transition-all ${
+                      isDarkMode
+                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                        : 'bg-red-100 text-red-600 hover:bg-red-200'
+                    }`}
+                  >
+                    Remove
+                  </button>
+                </motion.div>
+
+                {/* Split Mode Tabs */}
+                <div className="flex gap-2 mb-6 border-b border-gray-200/20 pb-2">
+                  <button
+                    onClick={() => setSplitMode('range')}
+                    className={`flex-1 py-3 px-4 rounded-t-lg font-medium transition-all ${
+                      splitMode === 'range'
+                        ? isDarkMode
+                          ? 'bg-blue-500/20 text-blue-400 border-b-2 border-blue-400'
+                          : 'bg-blue-100 text-blue-600 border-b-2 border-blue-600'
+                        : isDarkMode
+                          ? 'text-gray-400 hover:text-gray-300'
+                          : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                      </svg>
+                      Range
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setSplitMode('pages')}
+                    className={`flex-1 py-3 px-4 rounded-t-lg font-medium transition-all ${
+                      splitMode === 'pages'
+                        ? isDarkMode
+                          ? 'bg-blue-500/20 text-blue-400 border-b-2 border-blue-400'
+                          : 'bg-blue-100 text-blue-600 border-b-2 border-blue-600'
+                        : isDarkMode
+                          ? 'text-gray-400 hover:text-gray-300'
+                          : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Pages
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setSplitMode('size')}
+                    className={`flex-1 py-3 px-4 rounded-t-lg font-medium transition-all ${
+                      splitMode === 'size'
+                        ? isDarkMode
+                          ? 'bg-blue-500/20 text-blue-400 border-b-2 border-blue-400'
+                          : 'bg-blue-100 text-blue-600 border-b-2 border-blue-600'
+                        : isDarkMode
+                          ? 'text-gray-400 hover:text-gray-300'
+                          : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                      </svg>
+                      Size
+                    </div>
+                  </button>
+                </div>
+
+                {/* Split Configuration Panel */}
+                <motion.div
+                  key={splitMode}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`rounded-2xl border p-6 mb-6 ${
+                    isDarkMode
+                      ? 'bg-white/5 border-white/10'
+                      : 'bg-white/60 border-gray-200'
+                  } backdrop-blur-xl`}
+                >
+                  <AnimatePresence mode="wait">
+                    {/* RANGE MODE */}
+                    {splitMode === 'range' && (
+                      <motion.div
+                        key="range"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <h3 className={`text-lg font-semibold mb-4 ${
+                          isDarkMode ? 'text-white' : 'text-slate-900'
+                        }`}>
+                          Range mode:
+                        </h3>
+
+                        {/* Range Mode Selection */}
+                        <div className="flex gap-3 mb-6">
+                          <button
+                            onClick={() => setRangeMode('custom')}
+                            className={`flex-1 py-3 px-6 rounded-xl font-medium transition-all ${
+                              rangeMode === 'custom'
+                                ? isDarkMode
+                                  ? 'bg-red-500/20 text-red-400 border-2 border-red-500'
+                                  : 'bg-red-100 text-red-600 border-2 border-red-500'
+                                : isDarkMode
+                                  ? 'bg-white/5 text-gray-400 border-2 border-transparent hover:border-white/20'
+                                  : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-300'
+                            }`}
+                          >
+                            Custom ranges
+                          </button>
+                          <button
+                            onClick={() => setRangeMode('fixed')}
+                            className={`flex-1 py-3 px-6 rounded-xl font-medium transition-all ${
+                              rangeMode === 'fixed'
+                                ? isDarkMode
+                                  ? 'bg-blue-500/20 text-blue-400 border-2 border-blue-500'
+                                  : 'bg-blue-100 text-blue-600 border-2 border-blue-500'
+                                : isDarkMode
+                                  ? 'bg-white/5 text-gray-400 border-2 border-transparent hover:border-white/20'
+                                  : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-300'
+                            }`}
+                          >
+                            Fixed ranges
+                          </button>
+                        </div>
+
+                        {rangeMode === 'custom' ? (
+                          <div className="space-y-4">
+                            {customRanges.map((range, index) => (
+                              <motion.div
+                                key={range.id}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="flex items-center gap-3"
+                              >
+                                <div className={`px-3 py-2 rounded-lg font-medium ${
+                                  isDarkMode ? 'bg-white/10 text-gray-300' : 'bg-gray-200 text-gray-700'
+                                }`}>
+                                  Range {index + 1}
+                                </div>
+                                <div className="flex items-center gap-2 flex-1">
+                                  <label className={`text-sm ${
+                                    isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                                  }`}>
+                                    from page
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max={pdfPageCount}
+                                    value={range.from}
+                                    onChange={(e) =>
+                                      updateCustomRange(range.id, 'from', parseInt(e.target.value) || 1)
+                                    }
+                                    className={`w-20 px-3 py-2 rounded-lg text-center font-medium ${
+                                      isDarkMode
+                                        ? 'bg-white/10 text-white border border-white/20'
+                                        : 'bg-white border border-gray-300 text-slate-900'
+                                    } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                                  />
+                                  <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
+                                    to
+                                  </span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max={pdfPageCount}
+                                    value={range.to}
+                                    onChange={(e) =>
+                                      updateCustomRange(range.id, 'to', parseInt(e.target.value) || 1)
+                                    }
+                                    className={`w-20 px-3 py-2 rounded-lg text-center font-medium ${
+                                      isDarkMode
+                                        ? 'bg-white/10 text-white border border-white/20'
+                                        : 'bg-white border border-gray-300 text-slate-900'
+                                    } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                                  />
+                                </div>
+                                {customRanges.length > 1 && (
+                                  <button
+                                    onClick={() => removeCustomRange(range.id)}
+                                    className={`p-2 rounded-lg transition-all ${
+                                      isDarkMode
+                                        ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                        : 'bg-red-100 text-red-600 hover:bg-red-200'
+                                    }`}
+                                  >
+                                    <FiTrash2 size={18} />
+                                  </button>
+                                )}
+                              </motion.div>
+                            ))}
+
+                            <button
+                              onClick={addCustomRange}
+                              className={`w-full py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all ${
+                                isDarkMode
+                                  ? 'bg-white/5 text-blue-400 border-2 border-dashed border-white/20 hover:border-blue-400'
+                                  : 'bg-white border-2 border-dashed border-gray-300 text-blue-600 hover:border-blue-500'
+                              }`}
+                            >
+                              <FiPlus size={20} />
+                              Add Range
+                            </button>
+
+                            {/* Merge Option */}
+                            <div className={`flex items-center gap-3 p-4 rounded-lg ${
+                              isDarkMode ? 'bg-white/5' : 'bg-gray-50'
+                            }`}>
+                              <input
+                                type="checkbox"
+                                id="merge-ranges"
+                                checked={mergeRanges}
+                                onChange={(e) => setMergeRanges(e.target.checked)}
+                                className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <label
+                                htmlFor="merge-ranges"
+                                className={`text-sm cursor-pointer ${
+                                  isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                                }`}
+                              >
+                                Merge all ranges in one PDF file.
+                              </label>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-3">
+                              <label className={`text-sm font-medium ${
+                                isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                              }`}>
+                                Extract every
+                              </label>
+                              <input
+                                type="number"
+                                min="1"
+                                max={pdfPageCount}
+                                value={fixedInterval}
+                                onChange={(e) => setFixedInterval(parseInt(e.target.value) || 1)}
+                                className={`w-20 px-3 py-2 rounded-lg text-center font-medium ${
+                                  isDarkMode
+                                    ? 'bg-white/10 text-white border border-white/20'
+                                    : 'bg-white border border-gray-300 text-slate-900'
+                                } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                              />
+                              <label className={`text-sm font-medium ${
+                                isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                              }`}>
+                                pages into a separate document
+                              </label>
+                            </div>
+                            <p className={`text-sm ${
+                              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                            }`}>
+                              This will create {Math.ceil(pdfPageCount / fixedInterval)} PDF files
+                            </p>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {/* PAGES MODE */}
+                    {splitMode === 'pages' && (
+                      <motion.div
+                        key="pages"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <h3 className={`text-lg font-semibold mb-4 ${
+                          isDarkMode ? 'text-white' : 'text-slate-900'
+                        }`}>
+                          Extract specific pages:
+                        </h3>
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-3">
+                            <label className={`text-sm font-medium ${
+                              isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                            }`}>
+                              Extract page
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max={pdfPageCount}
+                              value={extractEveryNPages}
+                              onChange={(e) => setExtractEveryNPages(parseInt(e.target.value) || 1)}
+                              className={`w-20 px-3 py-2 rounded-lg text-center font-medium ${
+                                isDarkMode
+                                  ? 'bg-white/10 text-white border border-white/20'
+                                  : 'bg-white border border-gray-300 text-slate-900'
+                              } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                            />
+                            <label className={`text-sm font-medium ${
+                              isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                            }`}>
+                              and every {extractEveryNPages} pages after
+                            </label>
+                          </div>
+                          <p className={`text-sm ${
+                            isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                          }`}>
+                            This will extract approximately {Math.floor(pdfPageCount / extractEveryNPages)} pages
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+
+                    {/* SIZE MODE */}
+                    {splitMode === 'size' && (
+                      <motion.div
+                        key="size"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <h3 className={`text-lg font-semibold mb-4 ${
+                          isDarkMode ? 'text-white' : 'text-slate-900'
+                        }`}>
+                          Split by file size:
+                        </h3>
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-3">
+                            <label className={`text-sm font-medium ${
+                              isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                            }`}>
+                              Maximum size per file:
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="100"
+                              value={splitBySize}
+                              onChange={(e) => setSplitBySize(parseInt(e.target.value) || 5)}
+                              className={`w-20 px-3 py-2 rounded-lg text-center font-medium ${
+                                isDarkMode
+                                  ? 'bg-white/10 text-white border border-white/20'
+                                  : 'bg-white border border-gray-300 text-slate-900'
+                              } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                            />
+                            <label className={`text-sm font-medium ${
+                              isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                            }`}>
+                              MB
+                            </label>
+                          </div>
+                          <p className={`text-sm ${
+                            isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                          }`}>
+                            The PDF will be split into files of approximately {splitBySize} MB each
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+
+                {/* Split Button */}
+                <motion.button
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  onClick={handleSplit}
+                  disabled={isSplitting || pdfPageCount === 0}
+                  className={`w-full py-4 rounded-xl font-semibold text-lg flex items-center justify-center gap-3 transition-all ${
+                    isSplitting || pdfPageCount === 0
+                      ? isDarkMode
+                        ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-red-500 to-pink-500 text-white hover:shadow-lg hover:shadow-red-500/50 transform hover:scale-[1.02]'
+                  }`}
+                >
+                  {isSplitting ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Splitting PDF...
+                    </>
+                  ) : (
+                    <>
+                      <FiScissors size={24} />
+                      Split & Download
+                    </>
+                  )}
+                </motion.button>
+              </>
+            )}
+          </motion.div>
         </div>
       </div>
     </div>
