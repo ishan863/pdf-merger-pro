@@ -1,3 +1,10 @@
+/**
+ * Split PDF Component - Comprehensive Split Features
+ * Modes: Range (Custom/Fixed), Pages, Size
+ * Features: Custom ranges, fixed intervals, page extraction, size-based splitting
+ * Version: 2.0.0 - Full iLovePDF-like functionality
+ */
+
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiScissors, FiPlus, FiTrash2, FiUpload, FiFile } from 'react-icons/fi';
