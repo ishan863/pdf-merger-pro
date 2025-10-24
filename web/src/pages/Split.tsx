@@ -50,6 +50,7 @@ const Split: React.FC = () => {
   const [splitBySize, setSplitBySize] = useState<number>(5); // MB
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isSplitting, setIsSplitting] = useState(false);
+  const [isLoadingPreviews, setIsLoadingPreviews] = useState(false);
 
   // Load PDF and get page count + previews
   useEffect(() => {
@@ -72,11 +73,14 @@ const Split: React.FC = () => {
 
   // Generate all page previews
   const generateAllPreviews = async (file: File) => {
+    setIsLoadingPreviews(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
       const pageCount = pdf.numPages;
       const previews: PDFPagePreview[] = [];
+
+      toast.loading(`Generating previews for ${pageCount} pages...`, { id: 'preview-loading' });
 
       for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
         const page = await pdf.getPage(pageNum);
@@ -94,12 +98,20 @@ const Split: React.FC = () => {
           preview,
           selected: false,
         });
+
+        // Update progress
+        if (pageNum % 5 === 0 || pageNum === pageCount) {
+          toast.loading(`Generated ${pageNum} of ${pageCount} previews...`, { id: 'preview-loading' });
+        }
       }
 
       setPagePreviews(previews);
+      toast.success(`${pageCount} page previews loaded!`, { id: 'preview-loading' });
     } catch (error) {
       console.error('Failed to generate previews:', error);
-      toast.error('Failed to generate page previews');
+      toast.error('Failed to generate page previews', { id: 'preview-loading' });
+    } finally {
+      setIsLoadingPreviews(false);
     }
   };
 
@@ -829,6 +841,33 @@ const Split: React.FC = () => {
                     )}
                   </AnimatePresence>
                 </motion.div>
+
+                {/* Loading Previews Indicator */}
+                {isLoadingPreviews && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className={`rounded-2xl border p-8 mb-6 text-center ${
+                      isDarkMode
+                        ? 'bg-white/5 border-white/10'
+                        : 'bg-white/60 border-gray-200'
+                    } backdrop-blur-xl`}
+                  >
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      <p className={`text-lg font-medium ${
+                        isDarkMode ? 'text-white' : 'text-slate-900'
+                      }`}>
+                        Generating page previews...
+                      </p>
+                      <p className={`text-sm ${
+                        isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                      }`}>
+                        This may take a moment for large PDFs
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* Page Previews Grid */}
                 {pagePreviews.length > 0 && (
