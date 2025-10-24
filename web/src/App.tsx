@@ -10,7 +10,7 @@ import DashboardPage from '@/pages/DashboardProduction';
 import EditorPage from '@/pages/Editor';
 import FilesPage from '@/pages/Files';
 import MergePage from '@/pages/MergeEnhanced';
-import SplitPage from '@/pages/SplitEnhanced';
+import SplitPage from '@/pages/Split';
 import ConvertPage from '@/pages/ConvertAdvanced';
 import CloudPage from '@/pages/Cloud';
 import CollabPage from '@/pages/Collab';
